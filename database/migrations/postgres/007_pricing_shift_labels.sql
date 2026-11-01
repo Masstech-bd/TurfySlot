@@ -1,0 +1,1 @@
+ALTER TABLE turf_pricing_rules ADD COLUMN IF NOT EXISTS label VARCHAR(60) NOT NULL DEFAULT 'Shift';

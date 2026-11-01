@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: turfyslot_test_ci
+          POSTGRES_USER: turfyslot_test
+          POSTGRES_PASSWORD: turfyslot_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U turfyslot_test -d turfyslot_test_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DB_PROVIDER: postgres
+      DATABASE_URL: postgresql://turfyslot_test:turfyslot_test@localhost:5432/turfyslot_test_ci
+      TEST_DB_PROVIDER: postgres
+      TEST_DATABASE_URL: postgresql://turfyslot_test:turfyslot_test@localhost:5432/turfyslot_test_ci
+      PAYOUT_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+      SMTP_CONFIG_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+      PUSH_SUBSCRIPTION_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run db:migrate
+      - run: npm run lint
+      - run: npm run build
+      - run: node --test tests/*.test.js

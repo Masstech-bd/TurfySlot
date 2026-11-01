@@ -1,0 +1,42 @@
+#1 set mobile number to Bangladeshi style done
+
+#2 if turf owner didner match to our requirement then we will there is a approve or reject request add there another btn and a message they why his account is pending and if require to upload the license or document then do it let them update  through smtm mail or in web notification done
+
+#3 Turf Ground Listing Approvals (1) for this there will also be a btn along side approve or reject for if there is any info is missing or pending then owner must add it outer wise it should be pending and also in web notification there should be an option that if the massage is already read then it should show as reed and color changed . done
+
+#4 Manual booking could not be saved. from terminal getting this error [api] Access token validation failed: TokenExpiredError Reload availability and try again. is causing problem in and also all the alert gonna be custom. done
+
+#5Add-on Manager Manage Add-ons for Masstech Turf .it also doesn't work . done
+
+#6 there shouldn't be automatic time slot created owner should create his turf other wise the turf wont display to the user also he should get and smtp or web notification about it that he or she has create it first. done
+
+#7 also when user user paying for the turf the ssl url is make the user panel to login in so find a better solution and there should be an smtp mail and web notification based on it. done
+
+#8 TS-1791114284736-B69649	
+sehan
++8801644606383
+Masstech Turf
+2026-10-04
+18:00 - 19:00	online
+SSLCommerz (2.5% fee)
+৳1,140	expired	
+TS-1791114306603-F29E04	
+sehan
++8801644606383
+Masstech Turf
+2026-10-04
+18:00 - 20:00	online
+SSLCommerz (2.5% fee)
+৳2,280	expired	
+TS-1791114372121-26A38B	
+sehan
++8801644606383
+Masstech Turf
+2026-10-04
+18:00 - 19:00	online
+SSLCommerz (2.5% fee)
+৳1,140	expired i dont wanna see them imean expire one even though the user payer but in turf owner 
+4
+Available Wallet ৳0 is still showingthis also ther should be other box liek if the user paid 1200 for the turf he haset ot pay 1260 based one our cut like 5% this should also show in a card also how much ssl commerz is cutting off of from user it should also show  also even though the user paid in this wallet and payout it shtill show Ready for Withdrawal
+৳0 so fix it  .done
+

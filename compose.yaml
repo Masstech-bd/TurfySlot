@@ -1,0 +1,82 @@
+services:
+  web:
+    build:
+      context: .
+      target: web
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      target: api
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 5000
+      CLIENT_URL: ${CLIENT_URL:?Set CLIENT_URL to the public HTTPS site URL}
+      API_PUBLIC_URL: ${API_PUBLIC_URL:?Set API_PUBLIC_URL to the public HTTPS API URL}
+      DB_PROVIDER: mongodb
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      MONGODB_URI: ${MONGODB_URI:?Set MONGODB_URI in deployment secrets}
+      MONGODB_DATABASE: ${MONGODB_DATABASE:-turfyslot}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?Set JWT_ACCESS_SECRET in deployment secrets}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?Set JWT_REFRESH_SECRET in deployment secrets}
+      PAYOUT_ENCRYPTION_KEY: ${PAYOUT_ENCRYPTION_KEY:?Set PAYOUT_ENCRYPTION_KEY in deployment secrets}
+      SMTP_CONFIG_ENCRYPTION_KEY: ${SMTP_CONFIG_ENCRYPTION_KEY:?Set SMTP_CONFIG_ENCRYPTION_KEY in deployment secrets}
+      PUSH_SUBSCRIPTION_ENCRYPTION_KEY: ${PUSH_SUBSCRIPTION_ENCRYPTION_KEY:?Set PUSH_SUBSCRIPTION_ENCRYPTION_KEY in deployment secrets}
+      SSLCOMMERZ_CONFIG_ENCRYPTION_KEY: ${SSLCOMMERZ_CONFIG_ENCRYPTION_KEY:?Set SSLCOMMERZ_CONFIG_ENCRYPTION_KEY in deployment secrets}
+      SHURJOPAY_CONFIG_ENCRYPTION_KEY: ${SHURJOPAY_CONFIG_ENCRYPTION_KEY:?Set SHURJOPAY_CONFIG_ENCRYPTION_KEY in deployment secrets}
+      UDDOKTAPAY_CONFIG_ENCRYPTION_KEY: ${UDDOKTAPAY_CONFIG_ENCRYPTION_KEY:?Set UDDOKTAPAY_CONFIG_ENCRYPTION_KEY in deployment secrets}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-}
+      SMS_API_KEY: ${SMS_API_KEY:-}
+      SMS_SENDER_ID: ${SMS_SENDER_ID:-}
+      SMS_API_URL: ${SMS_API_URL:-https://api.bulksmsbd.co/send}
+      ADMIN_NAME: ${ADMIN_NAME:-}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      PRIVATE_UPLOADS_DIR: /app/uploads/private/business-verification
+    volumes:
+      - uploads_data:/app/uploads/private
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:5000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  uploads-backup:
+    image: alpine:3.20
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["echo '0 2 * * * /bin/sh /backup-uploads.sh >> /var/log/uploads-backup.log 2>&1' > /etc/crontabs/root && crond -f -l 2"]
+    volumes:
+      - uploads_data:/source:ro
+      - uploads_backup:/backup
+      - ./deploy/backup-uploads.sh:/backup-uploads.sh:ro
+    restart: unless-stopped
+
+volumes:
+  redis_data:
+  uploads_data:
+  uploads_backup:

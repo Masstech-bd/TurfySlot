@@ -1,0 +1,25 @@
+email:admin@turfyslot.com
+admin_pass:TurfyAdmin@2026!
+
+otherpass: turfyslot123
+
+
+mongo: aipshehan_db_user
+pass: d2d2tHClVgGfnWUO
+
+mongodb+srv://aipshehan_db_user:d2d2tHClVgGfnWUO@turf.cr9lzw9.mongodb.net/?appName=turf
+
+
+admin@gmail.com
+Admin@116699
+
+test-owner-c4edcc76dc@example.invalid
+TurfTest!5c2e2c78cf4644188052
+
+sll-test-id: sehan6ab69e04dcf79
+ssl-store:pass: b1AX3kxMbbxD
+npm.cmd run dev:all
+
+posggrea pass: aQ!83565@!#$%^&*
+
+

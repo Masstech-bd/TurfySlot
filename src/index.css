@@ -1,0 +1,69 @@
+@import "tailwindcss";
+
+@layer utilities {
+  .font-playfair {
+    font-family: 'Playfair Display', Georgia, serif;
+  }
+
+  .modal-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
+  }
+
+  .modal-scroll::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .modal-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .modal-scroll::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.12);
+    border-radius: 9999px;
+  }
+
+  .modal-scroll::-webkit-scrollbar-thumb:hover {
+    background: rgba(16, 185, 129, 0.5);
+  }
+
+  /* Hide scrollbar for Chrome, Safari and Opera */
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  /* Hide scrollbar for IE, Edge and Firefox */
+  .no-scrollbar {
+    -ms-overflow-style: none;  /* IE and Edge */
+    scrollbar-width: none;  /* Firefox */
+  }
+}
+
+:root {
+  --primary-turf: #0A1E14;
+  --secondary-lime: #C8FF5E;
+}
+
+/* Site-wide scrollbar themed in the brand's lime green */
+html {
+  scrollbar-width: thin;
+  scrollbar-color: #C8FF5E #0A1E14;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0A1E14;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #C8FF5E;
+  border-radius: 9999px;
+  border: 2px solid #0A1E14;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #A8E63E;
+}

@@ -1,0 +1,51 @@
+TURFYSLOT: FUTURE ARCHITECTURE REFACTOR
+
+Use this guide only when explicitly starting the architecture refactor. Do not combine it with a feature build or production deployment.
+
+GOAL
+
+Gradually make the existing application easier to maintain by separating backend routes, controllers, business logic, and persistence, and by breaking oversized frontend modules into focused files. Preserve current behavior and API contracts. This is an internal refactor, not permission to add product features.
+
+BEFORE CHANGING CODE
+
+1. Read AGENTS.md, especially its Scope Rule, Non-Regression Rule, database portability requirements, current phase, and relevant Definition of Done.
+2. Inspect the current server.js, database/provider.js, database/pricing.js, src/context/AppContext.tsx, src/components/admin/AdminPortal.tsx, tests, and package scripts. Follow existing code and naming conventions.
+3. Record the current test, lint/type-check, and build results. Identify the routes and UI behavior in the first small extraction.
+4. Do not change files or architecture outside the agreed extraction scope. Ask before adding a dependency, database field/table, endpoint, or behavior not explicitly specified.
+
+BACKEND STRUCTURE
+
+Introduce structure incrementally, using the existing Node.js ES module and JavaScript conventions:
+
+- routes/: Express route registration and middleware composition.
+- controllers/: HTTP request/response handling and validation boundary.
+- services/: business workflows and rules shared by route handlers.
+- models/ or repositories/: persistence/data access. Use one of these names based on the existing provider design; do not create a second competing persistence layer.
+- database/provider.js: retain or refactor the PostgreSQL and MongoDB provider adapters as the single persistence boundary, with equivalent behavior in both.
+
+The folder names are a suggested separation of responsibilities, not a requirement to duplicate code or adopt an ORM. Keep SQL/document queries behind the provider/repository boundary. Routes should delegate to controllers; controllers should not accumulate database queries or business rules. Services should not depend on Express request/response objects.
+
+FRONTEND STRUCTURE
+
+Gradually extract focused components and hooks from AppContext.tsx and AdminPortal.tsx. Keep UI rendering in components, domain-specific state/actions in suitable contexts or hooks, and API transport behavior in the existing API client layer. Do not change user-visible layouts, permissions, API payloads, or error behavior as part of extraction.
+
+SAFE EXECUTION
+
+1. Select one bounded domain at a time (for example, an existing admin workflow).
+2. Move code without changing behavior; update imports and exports and remove the old implementation only after the new path is wired.
+3. Preserve endpoint paths, request/response shapes, authentication, authorization, validation, audit behavior, and error responses.
+4. Preserve PostgreSQL and MongoDB parity, transaction/concurrency guarantees, monetary precision, and encryption handling.
+5. Add or update focused tests for the extracted behavior. Run those tests, then the relevant provider tests, lint/type-check, and build before proceeding to another domain.
+6. Review the diff for accidental feature changes, duplicated logic, exposed secrets, and unrelated edits.
+7. Stop and report any behavior that cannot be preserved safely; do not weaken rules to make the refactor easier.
+
+DONE WHEN
+
+- The selected code has a clear responsibility and no duplicate old implementation.
+- Existing API and UI behavior remains unchanged.
+- Focused tests plus the project's lint/type-check and build pass.
+- PostgreSQL and MongoDB behavior remains equivalent for affected persistence code.
+- The change is documented where the repository requires it.
+- The completed phase's existing acceptance criteria still pass.
+
+Do not refactor every file in one pass. Continue one verified, reviewable extraction at a time.

@@ -1,0 +1,11 @@
+name: Masstech
+email: masstech.ctg@gmail.com
+pass: M@$$tech2025
+
+mongo:
+conn: mongodb://root:Ro7nGxbsfRllSFQ9jUTb3YIDtvqcXptaI18UgR8kgPoVPHyDXY97f6QMfmv3zEqA@5jrdtvpbrux6elhmojxcz4qy:27017/?directConnection=true&tls=true&tlsCAFile=/etc/mongo/certs/ca.pem
+
+pass: Masstech2025
+
+postconn: postgres://postgres:Rre9JHHRFndNwTLV3Hmpukio38hUNIhvzSXwu5ufFfxN6cLQ2RqTxVdJ13xAswS5@xshfyfzlaidm7qkgcjurkytm:5432/postgres
+http://51.79.157.159:8000/projects
