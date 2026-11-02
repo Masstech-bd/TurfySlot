@@ -126,6 +126,7 @@ old one is not progress.
 - Section 74. Tournament Owner Submission and Admin Review
 - Section 75. Tournament Team Rosters and Player Invitations
 - Section 76. Cancellation Refund Tiers Measured from Booking Creation
+- Section 77. Admin-Configurable Booking Payment Hold Duration
 - Section 63. Automatic Booking Completion and Owner Override
 - Section 62. Explicit Weekly Availability Required for Public Turf Listings
 
@@ -564,7 +565,8 @@ item 4) — the flow below must handle N slots atomically, not just one.
     - Creates one `booking_slots` row per required slot, linking them to
       this booking.
     - **Locks all of the required slots together, in a single
-      transaction** (short TTL, e.g. 10 minutes) so no other player can
+      transaction** (short TTL, 10 minutes by default, configurable by
+      an admin under Section 77) so no other player can
       grab any of them individually while payment is pending. Use a
       single Redis multi/transaction (or a Postgres transaction with row
       locks) — never lock slots one-by-one in a loop without atomicity,
@@ -575,7 +577,7 @@ item 4) — the flow below must handle N slots atomically, not just one.
 5.  On successful payment (via SSLCommerz IPN/webhook — never trust the
     client-side redirect alone), the booking status becomes `confirmed`
     and **every** linked slot in `booking_slots` is marked `booked`.
-6.  If payment fails or the 10-minute lock expires unpaid, **all**
+6.  If payment fails or the configured lock expires unpaid, **all**
     linked slots are released back to `available` together, and the
     booking is marked `expired`.
 
@@ -1638,7 +1640,7 @@ stateDiagram-v2 [*] --> pending_payment: Player selects slot
     expired --> [*]
 
     note right of pending_payment
-        Redis lock for 10 minutes
+        Redis lock for the configured duration (10 minutes by default)
         Idempotent webhook processing
     end note
 
@@ -1674,7 +1676,7 @@ SSLCommerz participant PostgreSQL
     Frontend->>Backend: POST /api/player/bookings
     Backend->>PostgreSQL: Check slot availability
     PostgreSQL-->>Backend: Slot available
-    Backend->>Redis: Lock slot (TTL 10 min)
+    Backend->>Redis: Lock slot (configured TTL; default 10 min)
     Redis-->>Backend: Lock acquired
     Backend->>PostgreSQL: Create booking (pending_payment)
     Backend->>SSLCommerz: Initiate payment
@@ -2451,7 +2453,7 @@ user:profile:{id} 30 min On profile update User info
 dashboard:owner:{id} 5 min On booking/wallet change Owner dashboard
 settings:platform 1 hour On settings change Platform config
 webhook:processed:{txn} 24 hours Never Idempotency 37.4 Redis Key Design
-Patterns typescript // Slot Lock Keys (TTL: 10 minutes)
+Patterns typescript // Slot Lock Keys (TTL: admin-configured; default 10 minutes)
 `slot:lock:{turf_id}:{slot_id}` → { booking_id, player_id, expires_at }
 
 // User Session Keys (TTL: 15 minutes) `session:{user_id}` → {
@@ -3272,7 +3274,8 @@ at once.
   (1–5+ hours), backend resolves the exact list of consecutive `slots`
   needed and creates matching `booking_slots` rows (Section 10.1,
   Section 13).
-- Redis-based 10-minute lock applied to **all required slots together,
+- Redis-based admin-configurable lock (10 minutes by default) applied
+  to **all required slots together,
   atomically** — not one-by-one.
 - Background job (BullMQ) to release expired locks across all of a
   booking's slots at once.
@@ -5457,3 +5460,28 @@ The application must support PostgreSQL and MongoDB Atlas as alternative databas
 - [ ] Admin tier labels clearly describe elapsed time since booking creation; tier editing and addition remain available.
 - [ ] Owner review, 24-hour auto-approval, captured request percentages, non-refundable gateway fees, and manual-booking refund rules remain intact.
 - [ ] PostgreSQL and MongoDB resolve the same policy tiers and percentages.
+
+
+## 77. Admin-Configurable Booking Payment Hold Duration
+
+### 77.1 Scope
+
+- Admins can configure how many minutes an unpaid online booking reserves its selected slots before expiring. The default is 10 minutes; allowed values are whole minutes from 1 through 60.
+- The configured duration is read and enforced by the backend when a new booking hold is created. Booking expiry and every linked slot's lock expiry use the same timestamp.
+- The Admin settings page exposes the value, and player-facing hold text and countdown use the configured duration. The booking's server-returned expiry remains authoritative.
+- Changing the setting affects new holds only. A pending booking keeps the expiry established when it was created.
+
+### 77.2 Rules
+
+- A pending-payment booking continues to reserve all of its consecutive slots until payment succeeds, the hold expires, or the player releases the hold; it must not become available early.
+- Expiry releases every slot linked to the booking together and marks the unpaid booking expired, preserving the existing atomic reservation and double-booking protections.
+- The setting is persisted through both supported database providers. If no value exists, the system uses the 10-minute default.
+
+### 77.3 Definition of Done
+
+- [ ] An admin can save an integer hold duration from 1 to 60 minutes; invalid values are rejected server-side.
+- [ ] New online booking holds store matching booking and slot expiry timestamps based on the saved setting in PostgreSQL and MongoDB.
+- [ ] Players see the configured duration, and the countdown follows the server-provided expiry.
+- [ ] Existing pending holds keep their original expiry after an admin changes the setting.
+- [ ] An unpaid pending booking continues to reserve every linked slot until it is expired or explicitly released; expiry releases all linked slots together.
+- [ ] With no saved setting, new booking holds continue to use the existing 10-minute default.

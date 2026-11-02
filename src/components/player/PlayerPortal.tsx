@@ -165,7 +165,8 @@ export const PlayerPortal: React.FC = () => {
   const [isCreatingHold, setIsCreatingHold] = useState(false);
   const bookingHoldRequestRef = useRef(false);
   const [bookingHoldError, setBookingHoldError] = useState('');
-  const [lockTimerSeconds, setLockTimerSeconds] = useState<number>(600);
+  const bookingHoldSeconds = (settings.bookingHoldMinutes ?? 10) * 60;
+  const [lockTimerSeconds, setLockTimerSeconds] = useState<number>(bookingHoldSeconds);
   const [showCheckoutModal, setShowCheckoutModal] = useState(false);
   const [slotToReplaceSelection, setSlotToReplaceSelection] = useState<Slot | null>(null);
   const [showSSLGateway, setShowSSLGateway] = useState(false);
@@ -429,7 +430,7 @@ export const PlayerPortal: React.FC = () => {
     unlockSlots(selectedBookingSlots.map((item) => item.id));
     setReservedBookingId(null);
     setLockExpiryAt(null);
-    setLockTimerSeconds(600);
+    setLockTimerSeconds(bookingHoldSeconds);
     setSelectedSlot(null);
     setSelectedBookingSlots([]);
     setBookingDurationHours(1);
@@ -451,7 +452,7 @@ export const PlayerPortal: React.FC = () => {
     setSelectedBookingSlots([]);
     setBookingDurationHours(1);
     setLockExpiryAt(null);
-    setLockTimerSeconds(600);
+    setLockTimerSeconds(bookingHoldSeconds);
   };
 
   const handleSelectSlot = (slot: Slot) => {
@@ -489,7 +490,7 @@ export const PlayerPortal: React.FC = () => {
       setBookingDurationHours(Math.max(1, nextSelection.length));
       if (nextSelection.length === 0) {
         setLockExpiryAt(null);
-        setLockTimerSeconds(600);
+        setLockTimerSeconds(bookingHoldSeconds);
       }
       return;
     }
@@ -577,7 +578,8 @@ export const PlayerPortal: React.FC = () => {
         return;
       }
 
-      const heldSlots = effectiveBookingSlots.map((slot) => ({ ...slot, status: 'locked' as const, lockedByUserId: currentUser.id, lockedUntil: String(result.data.expiresAt || new Date(Date.now() + 10 * 60 * 1000).toISOString()) }));
+      const expiresAt = String(result.data.expiresAt || new Date(Date.now() + bookingHoldSeconds * 1000).toISOString());
+      const heldSlots = effectiveBookingSlots.map((slot) => ({ ...slot, status: 'locked' as const, lockedByUserId: currentUser.id, lockedUntil: expiresAt }));
       setServerBookingQuote({
         addonTotal: Number(result.data.addonTotal || 0),
         platformFeeAmount: Number(result.data.platformFeeAmount || 0),
@@ -588,7 +590,7 @@ export const PlayerPortal: React.FC = () => {
       setSelectedBookingSlots(heldSlots);
       setSelectedSlot(heldSlots[0]);
       setBookingDurationHours(heldSlots.length);
-      setLockExpiryAt(String(result.data.expiresAt || new Date(Date.now() + 10 * 60 * 1000).toISOString()));
+      setLockExpiryAt(expiresAt);
       upsertBooking({
         id: String(result.data.id),
         bookingNumber: String(result.data.bookingNumber || ''),
@@ -615,12 +617,12 @@ export const PlayerPortal: React.FC = () => {
         netOwnerAmount: 0,
         paymentMethod: selectedGateway?.provider === 'surjopay' ? 'surjopay' : selectedGateway?.provider === 'uddoktapay' ? 'uddoktapay' : 'sslcommerz',
         paymentStatus: 'pending',
-        expiresAt: String(result.data.expiresAt || new Date(Date.now() + 10 * 60 * 1000).toISOString()),
+        expiresAt,
         qrCode: '',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       });
-      setLockTimerSeconds(600);
+      setLockTimerSeconds(bookingHoldSeconds);
       await loadAvailability(firstSelectedSlot.turfId, firstSelectedSlot.date);
       setShowCheckoutModal(true);
     } catch (error) {
@@ -756,7 +758,7 @@ export const PlayerPortal: React.FC = () => {
 
   useEffect(() => {
     if (!lockExpiryAt) {
-      setLockTimerSeconds(600);
+      setLockTimerSeconds(bookingHoldSeconds);
       return;
     }
 
@@ -779,7 +781,7 @@ export const PlayerPortal: React.FC = () => {
     const interval = window.setInterval(tick, 1000);
 
     return () => window.clearInterval(interval);
-  }, [lockExpiryAt, selectedBookingSlots, unlockSlots]);
+  }, [bookingHoldSeconds, lockExpiryAt, selectedBookingSlots, unlockSlots]);
 
   const scrollToTurfs = () => {
     const el = document.getElementById('turf-explorer-section');
@@ -1756,7 +1758,7 @@ export const PlayerPortal: React.FC = () => {
       )}
 
       {/* ========================================================================= */}
-      {/* MODAL 2: 10-MINUTE HOLD & TRANSPARENT PRICING CHECKOUT                     */}
+      {/* MODAL 2: PAYMENT HOLD & TRANSPARENT PRICING CHECKOUT                      */}
       {/* ========================================================================= */}
       {showCheckoutModal && selectedSlot && selectedTurf && (
         <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-sm flex items-center justify-center p-4">
@@ -1768,7 +1770,7 @@ export const PlayerPortal: React.FC = () => {
                 </div>
 
                 <div>
-                  <h3 className="text-[18px] font-bold tracking-[-0.3px] text-white">Slot Held for You (10 Min)</h3>
+                  <h3 className="text-[18px] font-bold tracking-[-0.3px] text-white">Slot Held for You ({settings.bookingHoldMinutes ?? 10} Min)</h3>
                   <p className="mt-1 text-[12px] text-slate-300">
                     Lock expires in <span className="font-semibold text-emerald-400">{formatLockTimer(lockTimerSeconds)}</span>
                   </p>

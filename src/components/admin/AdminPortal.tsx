@@ -149,6 +149,7 @@ export const AdminPortal: React.FC = () => {
     setGlobalComm(settings.globalCommissionRate);
     setPlatformFee(settings.platformFeeRate);
     setMonthlySubscriptionAmount(settings.monthlySubscriptionAmount || 0);
+    setBookingHoldMinutes(settings.bookingHoldMinutes ?? 10);
     setOwnerBillingSwitchEnabled(settings.ownerBillingSwitchEnabled === true);
     setPlatformFeeEnabled(settings.platformFeeEnabled !== false);
     setGatewayFeeEnabled(settings.gatewayFeeEnabled !== false);
@@ -158,6 +159,7 @@ export const AdminPortal: React.FC = () => {
     settings.globalCommissionRate,
     settings.platformFeeRate,
     settings.monthlySubscriptionAmount,
+    settings.bookingHoldMinutes,
     settings.ownerBillingSwitchEnabled,
     settings.platformFeeEnabled,
     settings.gatewayFeeEnabled,
@@ -400,6 +402,7 @@ export const AdminPortal: React.FC = () => {
   const [globalComm, setGlobalComm] = useState(settings.globalCommissionRate);
   const [platformFee, setPlatformFee] = useState(settings.platformFeeRate);
   const [monthlySubscriptionAmount, setMonthlySubscriptionAmount] = useState(settings.monthlySubscriptionAmount || 0);
+  const [bookingHoldMinutes, setBookingHoldMinutes] = useState(settings.bookingHoldMinutes ?? 10);
   const [ownerBillingSwitchEnabled, setOwnerBillingSwitchEnabled] = useState(settings.ownerBillingSwitchEnabled === true);
   const [platformFeeEnabled, setPlatformFeeEnabled] = useState(settings.platformFeeEnabled !== false);
   const [gatewayFeeEnabled, setGatewayFeeEnabled] = useState(settings.gatewayFeeEnabled !== false);
@@ -776,6 +779,7 @@ export const AdminPortal: React.FC = () => {
         platformFeeRate: Number(platformFee),
         minWithdrawalAmount: Number(minWd),
         monthlySubscriptionAmount: Number(monthlySubscriptionAmount),
+        bookingHoldMinutes: Number(bookingHoldMinutes),
         ownerBillingSwitchEnabled,
         platformFeeEnabled,
         gatewayFeeEnabled,
@@ -803,7 +807,10 @@ export const AdminPortal: React.FC = () => {
     if (activeTab !== 'settings') return;
     let cancelled = false;
     apiFetch('/api/admin/settings').then((response) => response.json()).then((result) => {
-      if (!cancelled && result?.success) setMonthlySubscriptionAmount(Number(result.data?.monthly_subscription_amount ?? 0));
+      if (!cancelled && result?.success) {
+        setMonthlySubscriptionAmount(Number(result.data?.monthly_subscription_amount ?? 0));
+        setBookingHoldMinutes(Number(result.data?.booking_hold_minutes ?? 10));
+      }
     }).catch(() => undefined);
     return () => { cancelled = true; };
   }, [activeTab]);
@@ -1786,6 +1793,14 @@ export const AdminPortal: React.FC = () => {
                   <div className="flex items-center gap-3">
                     <input type="number" min="0" step="1" value={monthlySubscriptionAmount} onChange={(e) => setMonthlySubscriptionAmount(Number(e.target.value))} className="w-32 bg-[#07130c] border border-white/15 rounded-xl p-2.5 text-white font-bold text-sm focus:border-[#C8FF5E] outline-none" />
                     <span className="text-white/50">Set above ৳0 to offer subscription billing to new owners.</span>
+                  </div>
+
+                  <div>
+                    <label className="text-white/80 font-semibold mb-1 block">Booking Payment Hold (minutes):</label>
+                    <div className="flex items-center gap-3">
+                      <input type="number" min="1" max="60" step="1" value={bookingHoldMinutes} onChange={(e) => setBookingHoldMinutes(Number(e.target.value))} className="w-32 bg-[#07130c] border border-white/15 rounded-xl p-2.5 text-white font-bold text-sm focus:border-[#C8FF5E] outline-none" />
+                      <span className="text-white/50">Players have 1–60 minutes to complete payment before the slot is released.</span>
+                    </div>
                   </div>
                 </div>
 

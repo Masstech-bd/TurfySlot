@@ -1478,7 +1478,7 @@ export const TurfySlotHome: React.FC<TurfySlotHomeProps> = ({
               <div>
                 <span className="text-xs font-bold uppercase tracking-wider text-[#6db31e]">Live Availability</span>
                 <h3 className="font-playfair text-2xl font-bold text-[#0A1E14]">{selectedTurf.name}</h3>
-                <p className="text-xs text-[#5A6A60]">Choose consecutive hours, then continue to reserve them for 10 minutes.</p>
+                <p className="text-xs text-[#5A6A60]">Choose consecutive hours, then complete payment within {settings.bookingHoldMinutes ?? 10} minutes to keep the reservation.</p>
               </div>
               <div className="flex items-center gap-3">
                 <ClickableDatePicker value={selectedDate} onChange={setSelectedDate} min={getBDDateString()} className="rounded-xl border border-[#E2E8E5] bg-white px-3.5 py-2 text-xs font-semibold text-[#1A2E24] shadow-sm" />
@@ -1699,7 +1699,7 @@ export const TurfySlotHome: React.FC<TurfySlotHomeProps> = ({
             </div>
             <h4 className="font-playfair text-xl font-bold text-[#0A1E14]">Choose a Slot</h4>
             <p className="text-sm text-[#6A7A70] max-w-xs mx-auto leading-relaxed">
-              Check the live schedule, select your preferred time, and let our engine hold it for 10 minutes while you checkout.
+              Check the live schedule, select your preferred time, and our engine will hold it for {settings.bookingHoldMinutes ?? 10} minutes while you check out.
             </p>
           </div>
 
@@ -1996,7 +1996,7 @@ export const TurfySlotHome: React.FC<TurfySlotHomeProps> = ({
           </h2>
 
           <p className="text-base sm:text-lg lg:text-xl text-white/90 max-w-2xl mx-auto leading-relaxed drop-shadow-md">
-            Stop calling multiple venues to find a free slot. Search, compare and book your turf online with guaranteed 10-minute hold protection.
+            Stop calling multiple venues to find a free slot. Search, compare and book your turf online with a guaranteed payment hold.
           </p>
 
           <div className="pt-4 flex flex-col sm:flex-row items-center justify-center gap-4">

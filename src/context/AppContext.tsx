@@ -285,6 +285,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     platformFeeRate: 0,
     gatewayFeeRate: 0,
     monthlySubscriptionAmount: 0,
+    bookingHoldMinutes: 10,
     ownerBillingSwitchEnabled: false,
     platformFeeEnabled: false,
     gatewayFeeEnabled: false,
@@ -387,6 +388,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setSettings((previous) => ({
           ...previous,
           monthlySubscriptionAmount: Number(data.monthlySubscriptionAmount ?? previous.monthlySubscriptionAmount ?? 0),
+          bookingHoldMinutes: Number(data.bookingHoldMinutes ?? previous.bookingHoldMinutes ?? 10),
           ownerBillingSwitchEnabled: data.ownerBillingSwitchEnabled === true,
           platformFeeRate: Number(data.platformFeeRate ?? previous.platformFeeRate),
           gatewayFeeRate: Number(data.gatewayFeeRate ?? previous.gatewayFeeRate),
@@ -604,6 +606,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setSettings((previous) => ({
           ...previous,
           globalCommissionRate: Number(platformSettings.global_commission_rate ?? previous.globalCommissionRate),
+          bookingHoldMinutes: Number(platformSettings.booking_hold_minutes ?? previous.bookingHoldMinutes ?? 10),
           platformFeeRate: Number(platformSettings.platform_fee_rate ?? previous.platformFeeRate),
           gatewayFeeRate: Number(platformSettings.gateway_fee_rate ?? previous.gatewayFeeRate),
           minWithdrawalAmount: Number(platformSettings.minimum_withdrawal_amount?.amount ?? platformSettings.minimum_withdrawal_amount ?? previous.minWithdrawalAmount),
@@ -1642,6 +1645,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ['globalCommissionRate', 'global_commission_rate'], ['platformFeeRate', 'platform_fee_rate'],
       ['gatewayFeeRate', 'gateway_fee_rate'], ['minWithdrawalAmount', 'minimum_withdrawal_amount'],
       ['monthlySubscriptionAmount', 'monthly_subscription_amount'],
+      ['bookingHoldMinutes', 'booking_hold_minutes'],
       ['defaultCancellationWindowHours', 'cancellation_window_hours'], ['supportedSports', 'supported_sports'],
     ];
     const persisted: Partial<PlatformSettings> = {};

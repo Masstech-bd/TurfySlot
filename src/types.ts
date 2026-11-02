@@ -140,7 +140,7 @@ export interface Slot {
   price: number;
   pricingLabel?: string;
   status: SlotStatus;
-  lockedUntil?: string; // ISO string for 10-minute lock TTL
+  lockedUntil?: string;
   lockedByUserId?: string;
 }
 
@@ -336,6 +336,7 @@ export interface PlatformSettings {
   platformFeeRate: number;      // e.g. 5%
   gatewayFeeRate: number;       // e.g. 2.5%
   monthlySubscriptionAmount?: number;
+  bookingHoldMinutes?: number;
   ownerBillingSwitchEnabled?: boolean;
   platformFeeEnabled?: boolean;
   gatewayFeeEnabled?: boolean;

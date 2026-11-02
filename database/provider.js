@@ -1522,9 +1522,11 @@ export const deleteUnassignedStaffUser = async (staffId) => {
   return result.deletedCount > 0;
 };
 
-export const createBookingHold = async ({ playerId, turfId, date, startTime, durationHours, idempotencyKey }) => {
+export const createBookingHold = async ({ playerId, turfId, date, startTime, durationHours, idempotencyKey, holdMinutes = 10 }) => {
   const duration = Number(durationHours);
   if (!Number.isInteger(duration) || duration < 1 || duration > 12) throw new Error('Duration must be a whole number of hours from 1 to 12.');
+  const lockDuration = Number(holdMinutes);
+  if (!Number.isInteger(lockDuration) || lockDuration < 1 || lockDuration > 60) throw new Error('Booking hold duration must be from 1 to 60 minutes.');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}$/.test(startTime) || !idempotencyKey) throw new Error('A valid date, start time, and Idempotency-Key are required.');
 
   if (dbProvider === 'postgres') {
@@ -1574,8 +1576,9 @@ export const createBookingHold = async ({ playerId, turfId, date, startTime, dur
         }
       }
       const rules = await client.query('SELECT * FROM turf_pricing_rules WHERE turf_id=$1 ORDER BY day_of_week, start_time', [turfId]);
-      const settings = await client.query("SELECT key, value FROM platform_settings WHERE key IN ('platform_fee_rate','gateway_fee_rate','platform_fee_enabled','gateway_fee_enabled')");
+      const settings = await client.query("SELECT key, value FROM platform_settings WHERE key IN ('platform_fee_rate','gateway_fee_rate','platform_fee_enabled','gateway_fee_enabled','booking_hold_minutes')");
       const settingValues = Object.fromEntries(settings.rows.map((row) => [row.key, row.value]));
+      const bookingHoldMinutes = Number(settingValues.booking_hold_minutes ?? lockDuration);
       const baseAmount = roundMoney(slots.reduce((sum, slot) => sum + priceForSlot(turf.base_price_per_hour, rules.rows, date, slot.start_time), 0));
       const platformRate = turf.billing_model === 'monthly_subscription' || settingValues.platform_fee_enabled === false
         ? 0 : configuredPercent(settingValues.platform_fee_rate, 5);
@@ -1585,9 +1588,9 @@ export const createBookingHold = async ({ playerId, turfId, date, startTime, dur
       const bookingResult = await client.query(
         `INSERT INTO bookings (booking_number,idempotency_key,player_id,turf_id,booking_date,start_time,end_time,total_hours,
           booking_source,status,base_amount,commission_amount,platform_fee_amount,gateway_fee_amount,net_owner_amount,total_payable,payment_status,expires_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'online','pending_payment',$9,$10,$11,$12,$13,$14,'pending',NOW()+INTERVAL '10 minutes') RETURNING *`,
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'online','pending_payment',$9,$10,$11,$12,$13,$14,'pending',NOW()+($15 * INTERVAL '1 minute')) RETURNING *`,
         [bookingNumber, idempotencyKey, playerId, turfId, date, slots[0].start_time, slots[slots.length - 1].end_time,
-          duration, baseAmount, amounts.commissionAmount, amounts.platformFeeAmount, amounts.gatewayFeeAmount, amounts.netOwnerAmount, amounts.totalPayable]
+         duration, baseAmount, amounts.commissionAmount, amounts.platformFeeAmount, amounts.gatewayFeeAmount, amounts.netOwnerAmount, amounts.totalPayable, bookingHoldMinutes]
       );
       const booking = bookingResult.rows[0];
       await client.query(
@@ -1596,8 +1599,8 @@ export const createBookingHold = async ({ playerId, turfId, date, startTime, dur
       );
       for (const slot of slots) await client.query('INSERT INTO booking_slots (booking_id,slot_id) VALUES ($1,$2)', [booking.id, slot.id]);
       await client.query(
-        `UPDATE slots SET status='locked', locked_until=NOW()+INTERVAL '10 minutes', locked_by_user_id=$2, updated_at=NOW()
-         WHERE id=ANY($1::uuid[])`, [slots.map((slot) => slot.id), playerId]
+        `UPDATE slots SET status='locked', locked_until=(SELECT expires_at FROM bookings WHERE id=$2), locked_by_user_id=$3, updated_at=NOW()
+         WHERE id=ANY($1::uuid[])`, [slots.map((slot) => slot.id), booking.id, playerId]
       );
       await client.query('COMMIT');
       return booking;
@@ -1647,8 +1650,9 @@ export const createBookingHold = async ({ playerId, turfId, date, startTime, dur
           throw new Error('Not enough consecutive availability from the selected start time.');
         }
       }
-      const settingsDocs = await mongoDb.collection('platform_settings').find({ key: { $in: ['platform_fee_rate','gateway_fee_rate','platform_fee_enabled','gateway_fee_enabled'] } }, { session }).toArray();
+      const settingsDocs = await mongoDb.collection('platform_settings').find({ key: { $in: ['platform_fee_rate','gateway_fee_rate','platform_fee_enabled','gateway_fee_enabled','booking_hold_minutes'] } }, { session }).toArray();
       const settings = Object.fromEntries(settingsDocs.map((row) => [row.key, row.value]));
+      const bookingHoldMinutes = Number(settings.booking_hold_minutes ?? lockDuration);
       const baseAmount = roundMoney(slots.reduce((sum, slot) => sum + priceForSlot(turf.base_price_per_hour, turf.pricing_rules || [], date, slot.start_time), 0));
       const platformRate = turf.billing_model === 'monthly_subscription' || settings.platform_fee_enabled === false
         ? 0 : configuredPercent(settings.platform_fee_rate, 5);
@@ -1664,7 +1668,7 @@ export const createBookingHold = async ({ playerId, turfId, date, startTime, dur
         platform_fee_amount: amounts.platformFeeAmount.toFixed(2), gateway_fee_amount: amounts.gatewayFeeAmount.toFixed(2),
         net_owner_amount: amounts.netOwnerAmount.toFixed(2),
         total_payable: amounts.totalPayable.toFixed(2),
-        payment_status: 'pending', expires_at: new Date(now.getTime() + 10 * 60 * 1000).toISOString(), created_at: now.toISOString(),
+        payment_status: 'pending', expires_at: new Date(now.getTime() + bookingHoldMinutes * 60 * 1000).toISOString(), created_at: now.toISOString(),
       };
       await bookings.insertOne(booking, { session });
       await mongoDb.collection('payments').insertOne({
@@ -1674,7 +1678,7 @@ export const createBookingHold = async ({ playerId, turfId, date, startTime, dur
       }, { session });
       await mongoDb.collection('booking_slots').insertMany(slots.map((slot) => ({ id: crypto.randomUUID(), booking_id: booking.id, slot_id: slot.id })), { session });
       const updated = await mongoDb.collection('slots').updateMany({ id: { $in: slots.map((slot) => slot.id) }, status: 'available' }, {
-        $set: { status: 'locked', locked_until: new Date(now.getTime() + 10 * 60 * 1000).toISOString(), locked_by_user_id: playerId },
+        $set: { status: 'locked', locked_until: booking.expires_at, locked_by_user_id: playerId },
       }, { session });
       if (updated.modifiedCount !== duration) throw new Error('Slots changed while booking. Please try again.');
       created = booking;
@@ -1867,7 +1871,7 @@ export const confirmBookingPayment = async ({ transactionId, amount, currency, v
   }
 };
 
-// A player may release an unpaid hold before its 10-minute expiry. Keep the
+// A player may release an unpaid hold before its configured expiry. Keep the
 // booking in the existing expired state so late gateway callbacks follow the
 // same refund-safe path as any other expired hold.
 export const releasePendingBookingHold = async ({ bookingId, playerId }) => {

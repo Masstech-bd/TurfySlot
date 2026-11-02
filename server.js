@@ -1175,6 +1175,7 @@ const adminSettingValidators = {
   gateway_fee_rate: (value) => Number.isFinite(Number(value)) && Number(value) >= 0 && Number(value) <= 100,
   minimum_withdrawal_amount: (value) => Number.isFinite(Number(value?.amount ?? value)) && Number(value?.amount ?? value) >= 0,
   cancellation_window_hours: (value) => Number.isInteger(Number(value)) && Number(value) >= 0 && Number(value) <= 720,
+  booking_hold_minutes: (value) => Number.isInteger(Number(value)) && Number(value) >= 1 && Number(value) <= 60,
   monthly_subscription_amount: (value) => Number.isFinite(Number(value)) && Number(value) >= 0 && Number(value) <= 10000000,
   owner_billing_switch_enabled: (value) => typeof value === 'boolean',
   platform_fee_enabled: (value) => typeof value === 'boolean',
@@ -1249,6 +1250,7 @@ app.get('/api/public/billing-options', async (_req, res) => {
     const settings = await readAdminSettings();
     res.json({ success: true, data: {
       monthlySubscriptionAmount: Number(settings.monthly_subscription_amount || 0),
+      bookingHoldMinutes: Number(settings.booking_hold_minutes ?? 10),
       ownerBillingSwitchEnabled: settings.owner_billing_switch_enabled === true,
       platformFeeRate: Number(settings.platform_fee_rate ?? 5),
       gatewayFeeRate: Number(settings.gateway_fee_rate ?? 2.5),
@@ -2667,7 +2669,7 @@ app.post('/api/bookings', requireAuth, requireRole('player'), requireVerifiedEma
     });
     res.status(201).json({
       success: true,
-      message: 'All requested slots are held for 10 minutes. Complete payment to confirm the booking.',
+      message: `All requested slots are held for ${Math.max(1, Math.ceil((new Date(booking.expires_at).getTime() - Date.now()) / 60_000))} minutes. Complete payment to confirm the booking.`,
       data: {
         id: booking.id,
         bookingNumber: booking.booking_number,
