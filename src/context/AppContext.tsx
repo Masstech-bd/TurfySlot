@@ -45,6 +45,7 @@ interface AppContextType {
   // Current active impersonated user & role
   currentUser: User;
   isAuthenticated: boolean;
+  isSessionRestoring: boolean;
   isSignInModalOpen: boolean;
   setIsSignInModalOpen: (open: boolean) => void;
   isGetStartedModalOpen: boolean;
@@ -259,6 +260,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [users, setUsers] = useState<User[]>([]);
   const [currentUserId, setCurrentUserId] = useState<string>('guest');
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [isSessionRestoring, setIsSessionRestoring] = useState<boolean>(true);
   const [playerActiveTab, setPlayerActiveTab] = useState<'explore' | 'my_bookings' | 'favorites' | 'squads' | 'tournaments'>('explore');
   const [ownerActiveTab, setOwnerActiveTab] = useState<'bookings' | 'turfs' | 'slots' | 'staff' | 'wallet' | 'tournaments'>('bookings');
   const [adminActiveTab, setAdminActiveTab] = useState<'approvals' | 'users' | 'withdrawals' | 'policy_engine' | 'settings' | 'reports' | 'bookings' | 'disputes' | 'tournaments'>('approvals');
@@ -349,6 +351,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setUsers((current) => [...current.filter((entry) => entry.id !== user.id), user]);
       setCurrentUserId(user.id);
       setIsAuthenticated(true);
+    }).finally(() => {
+      if (!cancelled) setIsSessionRestoring(false);
     });
     return () => { cancelled = true; };
   }, []);
@@ -1646,6 +1650,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ['gatewayFeeRate', 'gateway_fee_rate'], ['minWithdrawalAmount', 'minimum_withdrawal_amount'],
       ['monthlySubscriptionAmount', 'monthly_subscription_amount'],
       ['bookingHoldMinutes', 'booking_hold_minutes'],
+      ['platformFeeEnabled', 'platform_fee_enabled'], ['gatewayFeeEnabled', 'gateway_fee_enabled'],
+      ['showFeeBreakdown', 'show_fee_breakdown'], ['ownerBillingSwitchEnabled', 'owner_billing_switch_enabled'],
       ['defaultCancellationWindowHours', 'cancellation_window_hours'], ['supportedSports', 'supported_sports'],
     ];
     const persisted: Partial<PlatformSettings> = {};
@@ -1993,6 +1999,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       value={{
         currentUser,
         isAuthenticated,
+        isSessionRestoring,
         isSignInModalOpen,
         setIsSignInModalOpen,
         isGetStartedModalOpen,

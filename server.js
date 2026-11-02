@@ -459,12 +459,12 @@ const loginAccountLimiter = rateLimit({
 
 const setRefreshCookie = (res, token) => {
   const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
-  res.setHeader('Set-Cookie', `refresh_token=${token}; HttpOnly; SameSite=Strict; Path=/api/auth; Max-Age=2592000${secure}`);
+  res.setHeader('Set-Cookie', `refresh_token=${token}; HttpOnly; SameSite=Lax; Path=/api/auth; Max-Age=2592000${secure}`);
 };
 
 const clearRefreshCookie = (res) => {
   const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
-  res.setHeader('Set-Cookie', `refresh_token=; HttpOnly; SameSite=Strict; Path=/api/auth; Max-Age=0${secure}`);
+  res.setHeader('Set-Cookie', `refresh_token=; HttpOnly; SameSite=Lax; Path=/api/auth; Max-Age=0${secure}`);
 };
 
 const refreshCookieFromRequest = (req) => {

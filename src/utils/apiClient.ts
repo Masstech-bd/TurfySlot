@@ -10,11 +10,17 @@ const refreshAccessToken = async () => {
   if (refreshInFlight) return refreshInFlight;
   refreshInFlight = (async () => {
     try {
-      const response = await fetch('/api/auth/refresh', { method: 'POST', credentials: 'include' });
-      const result = await response.json();
-      if (!response.ok || !result?.success || !result?.data?.accessToken) return null;
-      accessToken = result.data.accessToken;
-      return result.data;
+      const refresh = async () => {
+        const response = await fetch('/api/auth/refresh', { method: 'POST', credentials: 'include' });
+        const result = await response.json();
+        if (!response.ok || !result?.success || !result?.data?.accessToken) return null;
+        accessToken = result.data.accessToken;
+        return result.data;
+      };
+      if (typeof navigator !== 'undefined' && navigator.locks) {
+        return await navigator.locks.request('turfy-session-refresh', refresh);
+      }
+      return await refresh();
     } catch { return null; }
   })();
   try { return await refreshInFlight; }

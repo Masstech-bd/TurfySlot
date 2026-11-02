@@ -49,6 +49,10 @@ if (!['mongodb', 'postgres'].includes(providerName)) {
     const ipnUrl = 'https://api.example.com/api/payments/surjopay/webhook';
     await database.writeAdminSetting({ key: 'shurjopay_ipn_url', value: ipnUrl, adminId });
     assert.equal((await database.readAdminSettings()).shurjopay_ipn_url, ipnUrl);
+    for (const key of ['platform_fee_enabled', 'gateway_fee_enabled', 'show_fee_breakdown', 'owner_billing_switch_enabled']) {
+      await database.writeAdminSetting({ key, value: false, adminId });
+      assert.equal((await database.readAdminSettings())[key], false, `${key} must persist when disabled`);
+    }
     await assert.rejects(
       database.setFeatureFlag({ key: 'not_a_flag', value: true, adminId }),
       /Invalid feature flag update/

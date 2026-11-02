@@ -13,7 +13,11 @@ const StaffPortal = lazy(() => import('./components/staff/StaffPortal').then((mo
 const AdminPortal = lazy(() => import('./components/admin/AdminPortal').then((module) => ({ default: module.AdminPortal })));
 
 const AppContent: React.FC = () => {
-  const { currentUser } = useApp();
+  const { currentUser, isSessionRestoring } = useApp();
+
+  if (isSessionRestoring) {
+    return <div className="flex min-h-screen items-center justify-center bg-[#07130c] text-sm font-medium text-slate-300" role="status">Restoring your session…</div>;
+  }
 
   return (
     <div className="min-h-screen bg-[#07130c] text-slate-100 flex flex-col font-sans selection:bg-[#C8FF5E] selection:text-[#0A1E14]">
