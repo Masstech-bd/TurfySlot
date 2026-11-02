@@ -3599,7 +3599,7 @@ connectDatabase()
   .then(() => {
     const beginListening = async () => {
       if (bookingExpiryQueue) {
-        await rateLimitRedis.connect().catch((error) => { throw error; });
+        await rateLimitRedis.ping();
         await Promise.all([expirePendingBookingHolds(), releaseMaturedWalletHolds(), completeEndedBookings(), autoApproveOverdueCancellationRequests(), runOwnerSubscriptionCycle()]);
         await bookingExpiryQueue.add('sweep-expired-holds', {}, { repeat: { every: 60_000 }, jobId: 'sweep-expired-holds' });
         await bookingExpiryQueue.add('release-wallet-holds', {}, { repeat: { every: 60_000 }, jobId: 'release-wallet-holds' });
