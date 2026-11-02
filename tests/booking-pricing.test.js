@@ -1,6 +1,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { calculateBookingAmounts, calculateCancellationRefund, calculateDisplayedTurfPrice } from '../database/pricing.js';
+import { calculateBookingAmounts, calculateCancellationRefund, calculateDisplayedTurfPrice, findPricingRuleForSlot } from '../database/pricing.js';
+
+test('weekly pricing rules match PostgreSQL times at the exact start boundary', () => {
+  const rule = { day_of_week: 1, start_time: '18:00:00', end_time: '20:00:00', price_per_hour: 2200 };
+  assert.equal(findPricingRuleForSlot([rule], '2026-11-02', '18:00'), rule);
+  assert.equal(findPricingRuleForSlot([rule], '2026-11-02', '19:00'), rule);
+  assert.equal(findPricingRuleForSlot([rule], '2026-11-02', '20:00'), undefined);
+  assert.equal(findPricingRuleForSlot([rule], '2026-11-03', '18:00'), undefined);
+});
+
+test('special-date pricing takes precedence over a weekly rule', () => {
+  const weeklyRule = { dayOfWeek: 1, startTime: '18:00', endTime: '20:00', pricePerHour: 2200 };
+  const specialDateRule = { date: '2026-11-02', startTime: '18:00:00', endTime: '20:00:00', pricePerHour: 1800 };
+  assert.equal(findPricingRuleForSlot([weeklyRule, specialDateRule], '2026-11-02', '19:00'), specialDateRule);
+});
 
 test('gateway fee is calculated on booking subtotal without platform fee', () => {
   assert.deepEqual(calculateBookingAmounts({ baseAmount: 1000, platformRate: 5, gatewayRate: 2.5 }), {

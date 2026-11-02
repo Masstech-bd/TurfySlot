@@ -33,6 +33,7 @@ import {
 } from '../types';
 import { apiFetch, restoreSession, setAccessToken } from '../utils/apiClient';
 import { showAppAlert } from '../components/common/AppDialog';
+import { findPricingRuleForSlot } from '../../database/pricing.js';
 
 const sumPaidWithdrawals = (rows: unknown): number => Array.isArray(rows)
   ? rows.reduce((sum: number, value) => {
@@ -823,10 +824,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const rows: Slot[] = result.data.map((row: Record<string, unknown>) => {
         const startTime = String(row.start_time ?? row.startTime ?? '').slice(0, 5);
         const dateString = String(row.date ?? date).slice(0, 10);
-        const weekday = new Date(`${dateString}T12:00:00Z`).getUTCDay();
-        const matchesTime = (item: NonNullable<Turf['pricingRules']>[number]) => item.startTime <= startTime && item.endTime > startTime;
-        const rule = turf?.pricingRules?.find((item) => item.date?.slice(0, 10) === dateString && matchesTime(item)) ||
-          turf?.pricingRules?.find((item) => !item.date && item.dayOfWeek === weekday && matchesTime(item));
+        const rule = findPricingRuleForSlot(turf?.pricingRules || [], dateString, startTime);
         return {
           id: String(row.id), turfId: String(row.turf_id ?? row.turfId ?? turfId), date: dateString,
           startTime, endTime: String(row.end_time ?? row.endTime ?? '').slice(0, 5),

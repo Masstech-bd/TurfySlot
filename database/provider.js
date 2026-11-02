@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import dotenv from 'dotenv';
 import pg from 'pg';
 import { MongoClient } from 'mongodb';
-import { calculateBookingAmounts } from './pricing.js';
+import { calculateBookingAmounts, findPricingRuleForSlot } from './pricing.js';
 
 dotenv.config();
 
@@ -1183,11 +1183,7 @@ const configuredPercent = (value, fallback) => {
   return Number.isFinite(parsed) && parsed >= 0 && parsed <= 100 ? parsed : fallback;
 };
 const priceForSlot = (basePrice, rules, date, startTime) => {
-  const dayOfWeek = new Date(`${date}T12:00:00Z`).getUTCDay();
-  const matchesTime = (item) => minutesOf(item.start_time ?? item.startTime) <= minutesOf(startTime) &&
-    minutesOf(item.end_time ?? item.endTime) > minutesOf(startTime);
-  const rule = rules.find((item) => String(item.special_date ?? item.date ?? '').slice(0, 10) === date && matchesTime(item)) ||
-    rules.find((item) => item.special_date == null && item.date == null && Number(item.day_of_week ?? item.dayOfWeek) === dayOfWeek && matchesTime(item));
+  const rule = findPricingRuleForSlot(rules, date, startTime);
   return Number(rule?.price_per_hour ?? rule?.pricePerHour ?? basePrice);
 };
 

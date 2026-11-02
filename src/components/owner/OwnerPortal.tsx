@@ -216,6 +216,7 @@ export const OwnerPortal: React.FC = () => {
   const turfPhotoInputRef = useRef<HTMLInputElement>(null);
   const [newTurfPrice, setNewTurfPrice] = useState(1200);
   const [schedulePricingRules, setSchedulePricingRules] = useState<PricingRule[]>([]);
+  const [pricingRuleDraftDirty, setPricingRuleDraftDirty] = useState(false);
   const [pricingRuleMode, setPricingRuleMode] = useState<'weekly' | 'date'>('weekly');
   const [pricingRuleLabel, setPricingRuleLabel] = useState('Morning');
   const [pricingRuleDay, setPricingRuleDay] = useState(0);
@@ -266,17 +267,23 @@ export const OwnerPortal: React.FC = () => {
   const turfSportOptions = ['Football', 'Cricket', 'Basketball', 'Badminton', 'Volleyball', 'Tennis'];
   const turfAmenityOptions = ['Floodlights', 'Washroom', 'Parking', 'Locker Room', 'Cafeteria', 'Drinking Water', 'Changing Room', 'Gallery'];
   const turfWeekdays = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-  const addTurfPricingRule = () => {
-    if (pricingRuleMode === 'date' && !pricingRuleDate) { showAppAlert('Choose the special pricing date.'); return; }
+  const buildPricingRuleDraft = () => {
+    if (pricingRuleMode === 'date' && !pricingRuleDate) { showAppAlert('Choose the special pricing date.'); return null; }
     const label = pricingRuleLabel.trim();
-    if (!label || label.length > 60) { showAppAlert('Enter a shift label with 1 to 60 characters.'); return; }
-    if (pricingRuleEnd <= pricingRuleStart || !Number.isFinite(pricingRulePrice) || pricingRulePrice <= 0) { showAppAlert('Enter a valid time range and positive hourly price.'); return; }
+    if (!label || label.length > 60) { showAppAlert('Enter a shift label with 1 to 60 characters.'); return null; }
+    if (pricingRuleEnd <= pricingRuleStart || !Number.isFinite(pricingRulePrice) || pricingRulePrice <= 0) { showAppAlert('Enter a valid time range and positive hourly price.'); return null; }
     const overlaps = schedulePricingRules.some((rule) => (pricingRuleMode === 'date' ? rule.date === pricingRuleDate : !rule.date && rule.dayOfWeek === pricingRuleDay) && pricingRuleStart < rule.endTime && rule.startTime < pricingRuleEnd);
-    if (overlaps) { showAppAlert('This time range overlaps another price rule for the same day.'); return; }
-    setSchedulePricingRules((rules) => [...rules, {
+    if (overlaps) { showAppAlert('This time range overlaps another price rule for the same day.'); return null; }
+    return {
       id: crypto.randomUUID(), ...(pricingRuleMode === 'date' ? { date: pricingRuleDate } : { dayOfWeek: pricingRuleDay }),
       label, startTime: pricingRuleStart, endTime: pricingRuleEnd, pricePerHour: pricingRulePrice,
-    }]);
+    } satisfies PricingRule;
+  };
+  const addTurfPricingRule = () => {
+    const rule = buildPricingRuleDraft();
+    if (!rule) return;
+    setSchedulePricingRules((rules) => [...rules, rule]);
+    setPricingRuleDraftDirty(false);
   };
   const addCustomTurfValue = (kind: 'sport' | 'amenity') => {
     const value = (kind === 'sport' ? customSportDraft : customAmenityDraft).trim();
@@ -349,6 +356,9 @@ export const OwnerPortal: React.FC = () => {
   const [scheduleMessage, setScheduleMessage] = useState('');
   const [pricingMessage, setPricingMessage] = useState('');
   const [isScheduleExpanded, setIsScheduleExpanded] = useState(false);
+  useEffect(() => {
+    setPricingRuleDay(turfWeekdays.indexOf(scheduleDay));
+  }, [scheduleDay]);
   const selectedScheduleTurf = myTurfs.find((turf) => turf.id === slotTurfId);
   useEffect(() => {
     if (!myTurfs.some((turf) => turf.id === slotTurfId)) setSlotTurfId(myTurfs[0]?.id || '');
@@ -364,6 +374,7 @@ export const OwnerPortal: React.FC = () => {
   useEffect(() => {
     if (!selectedScheduleTurf) { setSchedulePricingRules([]); return; }
     setSchedulePricingRules((selectedScheduleTurf.pricingRules || []).map((rule) => ({ ...rule, id: rule.id || crypto.randomUUID(), label: rule.label || 'Shift' })));
+    setPricingRuleDraftDirty(false);
     setPricingMessage('');
   }, [selectedScheduleTurf?.id]);
   useEffect(() => {
@@ -505,8 +516,21 @@ export const OwnerPortal: React.FC = () => {
 
   const handleSavePricingRules = async () => {
     if (!selectedScheduleTurf) return;
-    const updated = await updateTurf(selectedScheduleTurf.id, { pricingRules: schedulePricingRules });
-    setPricingMessage(updated ? 'Pricing rules saved.' : 'Could not save pricing rules. Please try again.');
+    const rulesToSave = pricingRuleDraftDirty
+      ? (() => {
+          const rule = buildPricingRuleDraft();
+          return rule ? [...schedulePricingRules, rule] : null;
+        })()
+      : schedulePricingRules;
+    if (!rulesToSave) return;
+    if (pricingRuleDraftDirty) {
+      setSchedulePricingRules(rulesToSave);
+      setPricingRuleDraftDirty(false);
+    }
+    const updated = await updateTurf(selectedScheduleTurf.id, { pricingRules: rulesToSave });
+    setPricingMessage(updated
+      ? rulesToSave.length ? 'Pricing rules saved.' : 'Pricing rules cleared. All slots now use the base rate.'
+      : 'Could not save pricing rules. Please try again.');
     if (updated) await loadAvailability(slotTurfId, slotDate);
   };
 
@@ -1480,41 +1504,42 @@ export const OwnerPortal: React.FC = () => {
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 <label className="space-y-1.5">
                   <span className="block text-[11px] font-semibold text-white/65">Rule type</span>
-                  <select aria-label="Pricing rule type" value={pricingRuleMode} onChange={(event) => setPricingRuleMode(event.target.value as 'weekly' | 'date')} className="w-full rounded-xl border border-white/10 bg-[#07130c] px-3 py-2.5 text-xs text-white">
+                  <select aria-label="Pricing rule type" value={pricingRuleMode} onChange={(event) => { setPricingRuleMode(event.target.value as 'weekly' | 'date'); setPricingRuleDraftDirty(true); }} className="w-full rounded-xl border border-white/10 bg-[#07130c] px-3 py-2.5 text-xs text-white">
                     <option value="weekly">Weekly shift</option><option value="date">Special date</option>
                   </select>
                 </label>
                 <label className="space-y-1.5">
                   <span className="block text-[11px] font-semibold text-white/65">{pricingRuleMode === 'weekly' ? 'Weekday' : 'Date'}</span>
                   {pricingRuleMode === 'weekly' ? (
-                    <select aria-label="Pricing weekday" value={pricingRuleDay} onChange={(event) => setPricingRuleDay(Number(event.target.value))} className="w-full rounded-xl border border-white/10 bg-[#07130c] px-3 py-2.5 text-xs text-white">
+                    <select aria-label="Pricing weekday" value={pricingRuleDay} onChange={(event) => { setPricingRuleDay(Number(event.target.value)); setPricingRuleDraftDirty(true); }} className="w-full rounded-xl border border-white/10 bg-[#07130c] px-3 py-2.5 text-xs text-white">
                       {turfWeekdays.map((day, index) => <option key={day} value={index}>{day[0].toUpperCase() + day.slice(1)}</option>)}
                     </select>
                   ) : (
-                    <input aria-label="Special pricing date" type="date" value={pricingRuleDate} onChange={(event) => setPricingRuleDate(event.target.value)} className="w-full rounded-xl border border-white/10 bg-[#07130c] px-3 py-2.5 text-xs text-white" />
+                    <input aria-label="Special pricing date" type="date" value={pricingRuleDate} onChange={(event) => { setPricingRuleDate(event.target.value); setPricingRuleDraftDirty(true); }} className="w-full rounded-xl border border-white/10 bg-[#07130c] px-3 py-2.5 text-xs text-white" />
                   )}
                 </label>
                 <label className="space-y-1.5">
                   <span className="block text-[11px] font-semibold text-white/65">Shift label</span>
-                  <input aria-label="Shift label" list="pricing-shift-labels" maxLength={60} value={pricingRuleLabel} onChange={(event) => setPricingRuleLabel(event.target.value)} placeholder="e.g. Evening" className="w-full rounded-xl border border-white/10 bg-[#07130c] px-3 py-2.5 text-xs text-white placeholder-white/35" />
+                  <input aria-label="Shift label" list="pricing-shift-labels" maxLength={60} value={pricingRuleLabel} onChange={(event) => { setPricingRuleLabel(event.target.value); setPricingRuleDraftDirty(true); }} placeholder="e.g. Evening" className="w-full rounded-xl border border-white/10 bg-[#07130c] px-3 py-2.5 text-xs text-white placeholder-white/35" />
                 </label>
                 <datalist id="pricing-shift-labels"><option value="Morning" /><option value="Afternoon" /><option value="Evening" /><option value="Night" /><option value="Midnight" /></datalist>
                 <label className="space-y-1.5">
                   <span className="block text-[11px] font-semibold text-white/65">Start time</span>
-                  <select aria-label="Pricing start time" value={pricingRuleStart} onChange={(event) => setPricingRuleStart(event.target.value)} className="w-full rounded-xl border border-white/10 bg-[#07130c] px-3 py-2.5 text-xs text-white">{slotTimeOptions.filter((time) => time !== '24:00').map((time) => <option key={time} value={time}>{formatBDTime(time)}</option>)}</select>
+                  <select aria-label="Pricing start time" value={pricingRuleStart} onChange={(event) => { setPricingRuleStart(event.target.value); setPricingRuleDraftDirty(true); }} className="w-full rounded-xl border border-white/10 bg-[#07130c] px-3 py-2.5 text-xs text-white">{slotTimeOptions.filter((time) => time !== '24:00').map((time) => <option key={time} value={time}>{formatBDTime(time)}</option>)}</select>
                 </label>
                 <label className="space-y-1.5">
                   <span className="block text-[11px] font-semibold text-white/65">End time</span>
-                  <select aria-label="Pricing end time" value={pricingRuleEnd} onChange={(event) => setPricingRuleEnd(event.target.value)} className="w-full rounded-xl border border-white/10 bg-[#07130c] px-3 py-2.5 text-xs text-white">{slotTimeOptions.filter((time) => time !== '00:00').map((time) => <option key={time} value={time}>{formatBDTime(time)}</option>)}</select>
+                  <select aria-label="Pricing end time" value={pricingRuleEnd} onChange={(event) => { setPricingRuleEnd(event.target.value); setPricingRuleDraftDirty(true); }} className="w-full rounded-xl border border-white/10 bg-[#07130c] px-3 py-2.5 text-xs text-white">{slotTimeOptions.filter((time) => time !== '00:00').map((time) => <option key={time} value={time}>{formatBDTime(time)}</option>)}</select>
                 </label>
                 <label className="space-y-1.5">
                   <span className="block text-[11px] font-semibold text-white/65">Price per hour (৳)</span>
-                  <input aria-label="Shift price per hour" type="number" min="1" step="0.01" value={pricingRulePrice} onChange={(event) => setPricingRulePrice(Number(event.target.value))} className="w-full rounded-xl border border-white/10 bg-[#07130c] px-3 py-2.5 text-xs text-white" />
+                  <input aria-label="Shift price per hour" type="number" min="1" step="0.01" value={pricingRulePrice} onChange={(event) => { setPricingRulePrice(Number(event.target.value)); setPricingRuleDraftDirty(true); }} className="w-full rounded-xl border border-white/10 bg-[#07130c] px-3 py-2.5 text-xs text-white" />
                 </label>
               </div>
+              {pricingRuleGroups.length === 0 && <p className="rounded-xl border border-amber-400/20 bg-amber-400/5 px-3 py-2.5 text-[11px] leading-relaxed text-amber-100/75">No pricing rules are added yet, so every slot uses the base rate. Configure a rule above and click <strong>Save pricing</strong> to save it directly. Use <strong>Add rule</strong> first when you want to configure multiple rules. Saving with no changes clears all overrides.</p>}
               {pricingRuleGroups.length > 0 && <div className="space-y-2">{pricingRuleGroups.map((group) => <div key={`${group.schedule}-${group.label}`} className="rounded-xl border border-white/10 bg-[#07130c] p-3"><p className="mb-2 text-xs font-bold text-white">{group.label} <span className="font-normal capitalize text-white/50">· {group.schedule}</span></p><div className="flex flex-wrap gap-2">{group.rules.map((rule) => <span key={rule.id} className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-[#0A1E14] px-2.5 py-1.5 text-[11px] text-white/80">{formatBDTime(rule.startTime)}–{formatBDTime(rule.endTime)} · ৳{rule.pricePerHour}/hr<button type="button" aria-label={`Remove ${group.label} price range`} onClick={() => setSchedulePricingRules((rules) => rules.filter((item) => item.id !== rule.id))} className="font-bold text-rose-300">×</button></span>)}</div></div>)}</div>}
               <div className="flex flex-col gap-2 border-t border-white/10 pt-3 sm:flex-row sm:items-center sm:justify-between">
-                {pricingMessage && <p role="status" className={`text-xs ${pricingMessage.includes('saved') ? 'text-[#C8FF5E]' : 'text-rose-300'}`}>{pricingMessage}</p>}
+                {pricingMessage && <p role="status" className={`text-xs ${pricingMessage.includes('saved') || pricingMessage.includes('cleared') ? 'text-[#C8FF5E]' : 'text-rose-300'}`}>{pricingMessage}</p>}
                 {!selectedScheduleTurf && <p className="text-xs text-amber-300">Select an owned turf before saving prices.</p>}
                 <div className="flex gap-2 sm:ml-auto">
                   <button type="button" onClick={addTurfPricingRule} disabled={!selectedScheduleTurf} className="rounded-xl border border-[#C8FF5E]/30 px-4 py-2.5 text-xs font-semibold text-[#C8FF5E] hover:bg-[#C8FF5E]/10 disabled:cursor-not-allowed disabled:opacity-40">Add rule</button>
