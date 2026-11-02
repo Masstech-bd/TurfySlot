@@ -9,6 +9,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY server.js ./server.js
+COPY server ./server
 COPY database ./database
 EXPOSE 5000
 CMD ["sh", "-c", "node database/applySchema.js && node server.js"]
