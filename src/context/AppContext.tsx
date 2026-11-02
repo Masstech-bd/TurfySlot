@@ -1638,6 +1638,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const keys: Array<[keyof PlatformSettings, string]> = [
       ['globalCommissionRate', 'global_commission_rate'], ['platformFeeRate', 'platform_fee_rate'],
       ['gatewayFeeRate', 'gateway_fee_rate'], ['minWithdrawalAmount', 'minimum_withdrawal_amount'],
+      ['monthlySubscriptionAmount', 'monthly_subscription_amount'],
       ['defaultCancellationWindowHours', 'cancellation_window_hours'], ['supportedSports', 'supported_sports'],
     ];
     const persisted: Partial<PlatformSettings> = {};
