@@ -51,6 +51,9 @@ test('turf cards show the fee-inclusive total when the fee breakdown is hidden',
     baseAmount: 1600, platformRate: 5, gatewayRate: 2.5, showFeeBreakdown: false,
   }), 1720);
   assert.equal(calculateDisplayedTurfPrice({
+    baseAmount: 3200, platformRate: 5, gatewayRate: 2.5, showFeeBreakdown: false,
+  }), 3440);
+  assert.equal(calculateDisplayedTurfPrice({
     baseAmount: 1600, platformRate: 5, gatewayRate: 2.5, showFeeBreakdown: true,
   }), 1600);
 });

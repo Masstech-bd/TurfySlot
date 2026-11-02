@@ -115,6 +115,16 @@ export const TurfySlotHome: React.FC<TurfySlotHomeProps> = ({
     gatewayRate: settings.gatewayFeeEnabled === false ? 0 : settings.gatewayFeeRate,
     showFeeBreakdown: settings.showFeeBreakdown !== false,
   });
+  const displayedSlotPrice = (slot: Slot) => {
+    const turf = turfs.find((item) => item.id === slot.turfId);
+    return calculateDisplayedTurfPrice({
+      baseAmount: slot.price,
+      platformRate: turf?.ownerBillingModel === 'monthly_subscription' || settings.platformFeeEnabled === false
+        ? 0 : settings.platformFeeRate,
+      gatewayRate: settings.gatewayFeeEnabled === false ? 0 : settings.gatewayFeeRate,
+      showFeeBreakdown: settings.showFeeBreakdown !== false,
+    });
+  };
   const [currentBDTime, setCurrentBDTime] = useState(getBDNow);
   const [featuredHomeTurfs, setFeaturedHomeTurfs] = useState<Turf[]>([]);
   const [trendingHomeTurfs, setTrendingHomeTurfs] = useState<Turf[]>([]);
@@ -1555,7 +1565,7 @@ export const TurfySlotHome: React.FC<TurfySlotHomeProps> = ({
                       {formatBDTimeRange(slot.startTime, slot.endTime)}
                     </span>
                     <div className="mt-2">
-                      <span className="text-xs font-black text-[#0A1E14]">৳{slot.price}</span>
+                      <span className="text-xs font-black text-[#0A1E14]">৳{displayedSlotPrice(slot).toLocaleString()}</span>
                       {slot.pricingLabel && <span className="mt-1 text-[9px] font-semibold text-[#5A6A60]">{slot.pricingLabel}</span>}
                       <span className={`block text-[10px] font-semibold mt-1 uppercase ${
                         isPast ? 'text-slate-500' : isSelected ? 'text-[#6db31e]' : isAvail ? 'text-[#6db31e]' : isOwnedLockedSlot ? 'text-amber-600' : isLocked ? 'text-amber-600' : 'text-slate-500'
@@ -1587,7 +1597,7 @@ export const TurfySlotHome: React.FC<TurfySlotHomeProps> = ({
                         {visibleSelectedBookingSlots.length} hour{visibleSelectedBookingSlots.length > 1 ? 's' : ''}
                       </span>
                       <span className="rounded-full bg-white/60 px-2 py-1 text-[#0A1E14]">
-                        ৳{visibleSelectedBookingSlots.reduce((sum, slot) => sum + slot.price, 0).toLocaleString()}
+                        ৳{visibleSelectedBookingSlots.reduce((sum, slot) => sum + displayedSlotPrice(slot), 0).toLocaleString()}
                       </span>
                     </div>
                   </div>

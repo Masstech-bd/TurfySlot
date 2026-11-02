@@ -50,6 +50,7 @@ import { TournamentsView } from '../tournaments/TournamentsView';
 import { TurfMap } from '../common/LazyTurfMap';
 import { ClickableDatePicker } from '../common/CustomSelect';
 import { apiFetch } from '../../utils/apiClient';
+import { calculateDisplayedTurfPrice } from '../../../database/pricing.js';
 
 import heroPlayerCleanImg from '../../assets/images/hero_player_clean_1788976334634.jpg';
 import cityTurfMapImg from '../../assets/images/city_turf_map_1788975628489.jpg';
@@ -71,6 +72,13 @@ interface SquadMatch {
 
 const formatSlotRange = formatBDTimeRange;
 const BOOKING_HISTORY_PAGE_SIZE = 8;
+const parseApiResponse = async (response: Response, service: string) => {
+  const contentType = response.headers.get('content-type') || '';
+  if (!contentType.toLowerCase().includes('application/json')) {
+    throw new Error(`${service} returned a web page instead of JSON (HTTP ${response.status}). Please try again later.`);
+  }
+  return response.json();
+};
 
 const hasMatchEnded = (booking: Booking): boolean => {
   const date = String(booking.date || '').slice(0, 10);
@@ -659,6 +667,14 @@ export const PlayerPortal: React.FC = () => {
   const bookingGatewayFeeAmount = settings.gatewayFeeEnabled === false
     ? 0 : serverBookingQuote?.gatewayFeeAmount ?? Math.round(checkoutSubtotal * settings.gatewayFeeRate / 100);
   const totalPayable = serverBookingQuote?.totalPayable ?? checkoutSubtotal + bookingPlatformFeeAmount + bookingGatewayFeeAmount;
+  const displayedSlotPrice = (slot: Slot) => calculateDisplayedTurfPrice({
+    baseAmount: slot.price,
+    platformRate: selectedTurf?.ownerBillingModel === 'monthly_subscription' || settings.platformFeeEnabled === false
+      ? 0 : settings.platformFeeRate,
+    gatewayRate: settings.gatewayFeeEnabled === false ? 0 : settings.gatewayFeeRate,
+    showFeeBreakdown: settings.showFeeBreakdown !== false,
+  });
+  const displayedSelectedBookingPrice = selectedBookingSlots.reduce((sum, slot) => sum + displayedSlotPrice(slot), 0);
 
   // Keep the authenticated Turfyslot panel open while the hosted gateway checkout runs separately.
   const handleStartGatewayCheckout = async () => {
@@ -718,12 +734,12 @@ export const PlayerPortal: React.FC = () => {
           body: JSON.stringify({ bookingId: reservedBookingId }),
         });
         if (!verificationResponse.ok && verificationResponse.status !== 409) {
-          const verificationResult = await verificationResponse.json();
+          const verificationResult = await parseApiResponse(verificationResponse, 'Payment verification service');
           throw new Error(verificationResult?.message || 'Unable to verify this payment yet.');
         }
       }
       const response = await apiFetch(`/api/bookings/${encodeURIComponent(reservedBookingId)}`);
-      const result = await response.json();
+      const result = await parseApiResponse(response, 'Booking service');
       const row = result?.data as Record<string, unknown> | undefined;
       if (!response.ok || !result?.success || !row) throw new Error(result?.message || 'Unable to check this booking yet.');
       if (row.status === 'confirmed') {
@@ -1669,7 +1685,7 @@ export const PlayerPortal: React.FC = () => {
                           {formatSlotRange(slot.startTime, slot.endTime)}
                         </div>
                         <div className="text-[11px] text-emerald-400 font-semibold mt-1">
-                          ৳{slot.price.toLocaleString()}
+                          ৳{displayedSlotPrice(slot).toLocaleString()}
                         </div>
                         {slot.pricingLabel && <div className="text-[9px] font-semibold text-slate-400 mt-0.5">{slot.pricingLabel}</div>}
                         <div className="text-[9px] uppercase tracking-wider font-bold mt-1">
@@ -1705,7 +1721,7 @@ export const PlayerPortal: React.FC = () => {
                           {selectedBookingSlots.length} hour{selectedBookingSlots.length > 1 ? 's' : ''}
                         </span>
                         <span className="rounded-full bg-slate-900 px-2 py-1 text-white">
-                          ৳{selectedBookingSlots.reduce((sum, slot) => sum + slot.price, 0).toLocaleString()}
+                          ৳{displayedSelectedBookingPrice.toLocaleString()}
                         </span>
                       </div>
                     </div>
