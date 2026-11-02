@@ -2639,6 +2639,7 @@ const normalizeBooking = (row) => ({
   paymentMethod: row.booking_source === 'online' ? row.payment_gateway || 'sslcommerz' : row.payment_method || 'cash',
   paymentStatus: row.payment_status || row.gateway_payment_status || 'pending',
   paymentReference: row.payment_reference || undefined,
+  expiresAt: row.expires_at || undefined,
   cancellationReason: row.cancellation_reason || undefined,
   cancelledBy: row.cancelled_by || undefined,
   qrCode: row.booking_number || '',

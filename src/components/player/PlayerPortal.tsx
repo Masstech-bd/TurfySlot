@@ -105,6 +105,7 @@ export const PlayerPortal: React.FC = () => {
     openGetStartedModal,
     switchRoleDirectly,
     unlockSlots,
+    upsertBooking,
     cancelBooking,
     addReview,
     raiseDispute,
@@ -303,6 +304,7 @@ export const PlayerPortal: React.FC = () => {
         createdAt: String(row.created_at || new Date().toISOString()), updatedAt: String(row.updated_at || new Date().toISOString()),
       };
       setConfirmedBooking(booking);
+      upsertBooking(booking);
       clearPaymentQuery();
     }).catch(() => { if (!cancelled) setPaymentReturnMessage('Unable to verify the returned booking right now. Check your booking history shortly.'); });
     return () => { cancelled = true; };
@@ -587,6 +589,37 @@ export const PlayerPortal: React.FC = () => {
       setSelectedSlot(heldSlots[0]);
       setBookingDurationHours(heldSlots.length);
       setLockExpiryAt(String(result.data.expiresAt || new Date(Date.now() + 10 * 60 * 1000).toISOString()));
+      upsertBooking({
+        id: String(result.data.id),
+        bookingNumber: String(result.data.bookingNumber || ''),
+        playerId: currentUser.id,
+        customerName: currentUser.name,
+        customerPhone: currentUser.phone,
+        customerEmail: currentUser.email,
+        turfId: firstSelectedSlot.turfId,
+        turfName: matchedTurf?.name || '',
+        slotId: firstSelectedSlot.id,
+        slotIds: heldSlots.map((slot) => slot.id),
+        date: String(result.data.date || firstSelectedSlot.date).slice(0, 10),
+        startTime: String(result.data.startTime || firstSelectedSlot.startTime).slice(0, 5),
+        endTime: String(result.data.endTime || heldSlots[heldSlots.length - 1].endTime).slice(0, 5),
+        totalHours: Number(result.data.totalHours || heldSlots.length),
+        bookingSource: 'online',
+        status: 'pending_payment',
+        baseAmount: Number(result.data.baseAmount || 0),
+        commissionAmount: 0,
+        platformFeeAmount: Number(result.data.platformFeeAmount || 0),
+        hasGatewayFee: Number(result.data.gatewayFeeAmount || 0) > 0,
+        gatewayFeeAmount: Number(result.data.gatewayFeeAmount || 0),
+        totalPaid: Number(result.data.totalPayable || 0),
+        netOwnerAmount: 0,
+        paymentMethod: selectedGateway?.provider === 'surjopay' ? 'surjopay' : selectedGateway?.provider === 'uddoktapay' ? 'uddoktapay' : 'sslcommerz',
+        paymentStatus: 'pending',
+        expiresAt: String(result.data.expiresAt || new Date(Date.now() + 10 * 60 * 1000).toISOString()),
+        qrCode: '',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
       setLockTimerSeconds(600);
       await loadAvailability(firstSelectedSlot.turfId, firstSelectedSlot.date);
       setShowCheckoutModal(true);
@@ -705,6 +738,7 @@ export const PlayerPortal: React.FC = () => {
           createdAt: String(row.created_at || new Date().toISOString()), updatedAt: String(row.updated_at || new Date().toISOString()),
         };
         setConfirmedBooking(booking);
+        upsertBooking(booking);
         setShowSSLGateway(false);
         setReservedBookingId(null);
         setLockExpiryAt(null);
@@ -861,6 +895,7 @@ export const PlayerPortal: React.FC = () => {
             {visibleMyBookings.map((b) => {
               const bookingTurf = turfs.find((turf) => turf.id === b.turfId);
               const isBookingMapOpen = bookingMapId === b.id;
+              const isPaymentPending = b.status === 'pending_payment';
               const isCompleted = b.status === 'completed';
               const canReviewBooking = isCompleted && b.playerId === currentUser.id && hasMatchEnded(b);
               const isConfirmed = b.status === 'confirmed' || b.status === 'checked_in';
@@ -879,7 +914,9 @@ export const PlayerPortal: React.FC = () => {
                     </div>
                     <span
                       className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full border ${
-                        isConfirmed
+                        isPaymentPending
+                          ? 'bg-amber-500/15 text-amber-300 border-amber-400/30'
+                          : isConfirmed
                           ? 'bg-[#C8FF5E]/15 text-[#C8FF5E] border-[#C8FF5E]/30'
                           : isCompleted
                           ? 'bg-blue-500/20 text-blue-400 border-blue-500/30'
@@ -901,9 +938,15 @@ export const PlayerPortal: React.FC = () => {
                       </span>
                     </div>
                     <div className="text-xs text-white/60 flex items-center justify-between pt-1">
-                      <span>Total Paid:</span>
+                      <span>{isPaymentPending ? 'Amount due:' : 'Total Paid:'}</span>
                       <span className="font-bold text-[#C8FF5E] text-base">৳{b.totalPaid.toLocaleString()}</span>
                     </div>
+                    {isPaymentPending && (
+                      <div className="rounded-lg border border-amber-400/20 bg-amber-400/5 p-2 text-[11px] text-amber-100">
+                        <p className="font-bold">Payment is pending. This slot is temporarily held and is not confirmed yet.</p>
+                        {b.expiresAt && <p className="mt-1">The hold expires at {new Date(b.expiresAt).toLocaleTimeString('en-BD', { hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Dhaka' }).replace(' ', '')} Bangladesh time.</p>}
+                      </div>
+                    )}
                     {b.refundAmount && b.refundAmount > 0 && (
                       <div className="text-xs text-emerald-400 font-semibold flex items-center justify-between">
                         <span>Refund Pending Admin Processing:</span>
@@ -938,13 +981,13 @@ export const PlayerPortal: React.FC = () => {
                   {/* Actions */}
                   <div className="pt-3 border-t border-white/10 flex items-center justify-between gap-2 flex-wrap">
                     <div className="flex items-center gap-2">
-                      <button
+                      {!isPaymentPending && <button
                         onClick={() => setSelectedBookingForQR(b)}
                         className="px-3.5 py-2 bg-[#C8FF5E] hover:bg-[#A8E63E] text-[#0A1E14] text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
                       >
                         <QrCode className="w-3.5 h-3.5" />
                         <span>Show QR Pass</span>
-                      </button>
+                      </button>}
 
                       {bookingTurf && (
                         <button
@@ -994,13 +1037,13 @@ export const PlayerPortal: React.FC = () => {
                       )}
                       {isCompleted && b.playerId === currentUser.id && !canReviewBooking && <span className="text-[11px] text-white/45">Rating opens after your match ends.</span>}
 
-                      <button
+                      {!isPaymentPending && <button
                         onClick={() => setDisputeBooking(b)}
                         className="p-1.5 text-white/50 hover:text-white rounded-lg"
                         title="Need help or file dispute"
                       >
                         <HelpCircle className="w-4 h-4" />
-                      </button>
+                      </button>}
                     </div>
                   </div>
                 </div>

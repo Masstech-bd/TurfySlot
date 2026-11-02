@@ -114,6 +114,7 @@ interface AppContextType {
 
   // Actions: Booking & Slots
   unlockSlots: (slotIds: string[]) => void;
+  upsertBooking: (booking: Booking) => void;
   createManualBooking: (params: {
     turfId: string;
     slotId: string;
@@ -270,6 +271,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [turfs, setTurfs] = useState<Turf[]>([]);
   const [slots, setSlots] = useState<Slot[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
+  const upsertBooking = (booking: Booking) => setBookings((previous) => [booking, ...previous.filter((item) => item.id !== booking.id)]);
   const [staffAssignments, setStaffAssignments] = useState<StaffAssignment[]>([]);
   const [wallets, setWallets] = useState<Record<string, OwnerWallet>>({});
   const [withdrawals, setWithdrawals] = useState<WithdrawalRequest[]>([]);
@@ -727,6 +729,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             paymentMethod: String(row.paymentMethod ?? row.payment_gateway ?? row.payment_method ?? (row.booking_source === 'online' ? 'sslcommerz' : 'cash')) as PaymentMethod,
             paymentStatus: String(row.paymentStatus ?? row.payment_status ?? 'pending') as PaymentStatus,
             paymentReference: String(row.paymentReference ?? row.payment_reference ?? ''), notes: String(row.notes || ''),
+            expiresAt: String(row.expiresAt ?? row.expires_at ?? ''),
             cancellationReason: String(row.cancellationReason ?? row.cancellation_reason ?? ''),
             cancellationRequestStatus: String(row.cancellationRequestStatus ?? row.cancellation_request_status ?? '') as Booking['cancellationRequestStatus'],
             cancellationRequestReason: String(row.cancellationRequestReason ?? row.cancellation_request_reason ?? ''),
@@ -2035,6 +2038,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         tournamentTeams,
         tournamentMatches,
         unlockSlots,
+        upsertBooking,
         createManualBooking,
         cancelBooking,
         decideCancellationRequest,

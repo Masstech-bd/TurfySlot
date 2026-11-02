@@ -185,6 +185,7 @@ export interface Booking {
   paymentReference?: string;
   notes?: string;
   cancellationPolicyId?: string;
+  expiresAt?: string;
   cancellationReason?: string;
   cancellationRequestStatus?: 'pending' | 'approved' | 'rejected';
   cancellationRequestReason?: string;
