@@ -647,6 +647,10 @@ export const PlayerPortal: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ bookingId: reservedBookingId }),
       });
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.toLowerCase().includes('application/json')) {
+        throw new Error(`The payment service returned a web page instead of JSON (HTTP ${response.status}). Check the API route and try again.`);
+      }
       const data = await response.json();
       if (!data.success) {
         checkoutWindow.close();
@@ -659,7 +663,9 @@ export const PlayerPortal: React.FC = () => {
       checkoutWindow.location.assign(data.gatewayPageURL);
     } catch (error) {
       checkoutWindow.close();
-      setGatewayError('Could not reach the payment server. Is the backend (server.js) running on port 5000?');
+      setGatewayError(error instanceof Error && error.message.startsWith('The payment service returned a web page')
+        ? error.message
+        : 'Could not reach the payment server. Please refresh and try again.');
     } finally {
       setIsProcessingPayment(false);
     }
