@@ -971,6 +971,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
       response = await apiFetch('/api/auth/register/turf-owner', { method: 'POST', body: form });
     }
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.toLowerCase().includes('application/json')) {
+      throw new Error(`The registration service returned a web page instead of JSON (HTTP ${response.status}). Please check the document sizes and try again.`);
+    }
     const result = await response.json();
     if (!response.ok || !result?.success) throw new Error(result?.message || 'Unable to create this account.');
     setAccessToken(result.data.accessToken);
