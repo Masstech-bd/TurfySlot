@@ -14,6 +14,12 @@ export const calculateBookingAmounts = ({ baseAmount, platformRate, gatewayRate 
   };
 };
 
+export const calculateDisplayedTurfPrice = ({ baseAmount, platformRate, gatewayRate, showFeeBreakdown }) => {
+  const subtotal = roundMoney(Number(baseAmount));
+  if (showFeeBreakdown) return subtotal;
+  return calculateBookingAmounts({ baseAmount: subtotal, platformRate, gatewayRate }).totalPayable;
+};
+
 export const calculateCancellationRefund = ({
   baseAmount,
   addonTotal = 0,

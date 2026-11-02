@@ -43,6 +43,7 @@ import { ClickableDatePicker, CustomSelect } from '../common/CustomSelect';
 import { TurfMap } from '../common/LazyTurfMap';
 import { formatBDTimeRange, getBDDateString, getBDNow } from '../../utils/datetime';
 import { apiFetch } from '../../utils/apiClient';
+import { calculateDisplayedTurfPrice } from '../../../database/pricing.js';
 
 interface SquadMatch {
   id: string;
@@ -108,6 +109,12 @@ export const TurfySlotHome: React.FC<TurfySlotHomeProps> = ({
   setActiveTab,
 }) => {
   const { isAuthenticated, openSignInModal, turfs, currentUser, settings, openMatches, tournaments } = useApp();
+  const startingPriceForCard = (turf: Turf) => calculateDisplayedTurfPrice({
+    baseAmount: turfStartingPrice(turf),
+    platformRate: turf.ownerBillingModel === 'monthly_subscription' || settings.platformFeeEnabled === false ? 0 : settings.platformFeeRate,
+    gatewayRate: settings.gatewayFeeEnabled === false ? 0 : settings.gatewayFeeRate,
+    showFeeBreakdown: settings.showFeeBreakdown !== false,
+  });
   const [currentBDTime, setCurrentBDTime] = useState(getBDNow);
   const [featuredHomeTurfs, setFeaturedHomeTurfs] = useState<Turf[]>([]);
   const [trendingHomeTurfs, setTrendingHomeTurfs] = useState<Turf[]>([]);
@@ -1427,7 +1434,7 @@ export const TurfySlotHome: React.FC<TurfySlotHomeProps> = ({
                     <div>
                       <span className="text-xs text-[#7A8A80] block">Starting from</span>
                       <span className="font-playfair text-xl font-black text-[#0A1E14]">
-                        ৳{turfStartingPrice(turf).toLocaleString()}
+                        ৳{startingPriceForCard(turf).toLocaleString()}
                       </span>
                       <span className="text-xs text-[#7A8A80]"> / slot</span>
                     </div>

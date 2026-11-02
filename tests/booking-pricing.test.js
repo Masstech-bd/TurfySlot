@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { calculateBookingAmounts, calculateCancellationRefund } from '../database/pricing.js';
+import { calculateBookingAmounts, calculateCancellationRefund, calculateDisplayedTurfPrice } from '../database/pricing.js';
 
 test('gateway fee is calculated on booking subtotal without platform fee', () => {
   assert.deepEqual(calculateBookingAmounts({ baseAmount: 1000, platformRate: 5, gatewayRate: 2.5 }), {
@@ -30,6 +30,21 @@ test('disabled fees do not change the total', () => {
     netOwnerAmount: 1600,
     totalPayable: 1600,
   });
+});
+
+test('turf cards show the fee-inclusive total when the fee breakdown is hidden', () => {
+  assert.equal(calculateDisplayedTurfPrice({
+    baseAmount: 1600, platformRate: 5, gatewayRate: 2.5, showFeeBreakdown: false,
+  }), 1720);
+  assert.equal(calculateDisplayedTurfPrice({
+    baseAmount: 1600, platformRate: 5, gatewayRate: 2.5, showFeeBreakdown: true,
+  }), 1600);
+});
+
+test('subscription turf card prices do not include a platform fee', () => {
+  assert.equal(calculateDisplayedTurfPrice({
+    baseAmount: 1600, platformRate: 0, gatewayRate: 2.5, showFeeBreakdown: false,
+  }), 1640);
 });
 
 test('online add-on refunds use the combined booking subtotal and exclude the gateway fee', () => {
