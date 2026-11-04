@@ -1,0 +1,7 @@
+Soccer ball emoji artwork
+
+Source: Twemoji 14.0.2
+URL: https://github.com/twitter/twemoji/blob/v14.0.2/assets/svg/26bd.svg
+Copyright: Twitter, Inc. and other contributors
+License: Creative Commons Attribution 4.0 International (CC BY 4.0)
+License URL: https://creativecommons.org/licenses/by/4.0/

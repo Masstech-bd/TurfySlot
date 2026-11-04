@@ -1185,6 +1185,91 @@ const adminSettingValidators = {
   featured_packages: (value) => Array.isArray(value) && value.length <= 20 && value.every((item) => item && typeof item.id === 'string' && item.id.length <= 100 && typeof item.name === 'string' && item.name.trim().length > 0 && item.name.length <= 100 && Number.isFinite(Number(item.price)) && Number(item.price) >= 0 && Number.isInteger(Number(item.durationDays)) && Number(item.durationDays) > 0 && Number.isInteger(Number(item.priority)) && Number(item.priority) > 0 && typeof item.description === 'string' && item.description.length <= 500) && new Set(value.map((item) => item.id)).size === value.length,
 };
 
+const legalPageDefinitions = {
+  'privacy-policy': {
+    title: 'Privacy Policy',
+    content: 'STARTER DRAFT — ADMIN REVIEW REQUIRED\n\nReplace this draft with the platform’s approved privacy policy before publishing. Describe only data collection, use, sharing, security, retention, and user rights that have been verified for the live service.',
+  },
+  'terms-of-service': {
+    title: 'Terms of Service',
+    content: 'STARTER DRAFT — ADMIN REVIEW REQUIRED\n\nReplace this draft with the platform’s approved terms of service before publishing. Confirm all legal, operational, payment, account, and dispute terms before making this page public.',
+  },
+  'refund-policy': {
+    title: 'Refund Policy',
+    content: 'This page explains the platform cancellation and refund rules. The refund percentage depends on the policy attached to the booking. Player cancellation requests are reviewed by the turf owner; requests not decided within 24 hours are automatically approved using the percentage captured when the request was submitted. Owner-initiated cancellations receive a full refund. Payment gateway fees are non-refundable. Manual booking refunds are handled offline by the owner. See the matrix below for the current global default policy; a turf-specific or owner-specific policy may apply to a booking.',
+  },
+};
+
+const readLegalPages = async () => {
+  const settings = await readAdminSettings();
+  const savedPages = settings.legal_pages && typeof settings.legal_pages === 'object' ? settings.legal_pages : {};
+  return Object.fromEntries(Object.entries(legalPageDefinitions).map(([slug, definition]) => {
+    const saved = savedPages[slug];
+    return [slug, {
+      title: definition.title,
+      content: typeof saved?.content === 'string' ? saved.content : definition.content,
+      published: typeof saved?.published === 'boolean' ? saved.published : false,
+    }];
+  }));
+};
+
+const getDefaultRefundTiers = async () => {
+  const policies = await listCancellationPolicies();
+  const policy = policies.find((item) => (item.is_default ?? item.isDefault) === true && (item.is_active ?? item.isActive) !== false);
+  return (policy?.tiers || []).map((tier) => ({
+    minHoursSinceBooking: Number(tier.hours_before_start_min ?? tier.min),
+    maxHoursSinceBooking: tier.hours_before_start_max == null && tier.max == null ? null : Number(tier.hours_before_start_max ?? tier.max),
+    refundPercentage: Number(tier.refund_percentage ?? tier.refundPercentage),
+  }));
+};
+
+app.get('/api/admin/legal-pages', requireAuth, requireRole('admin'), async (_req, res) => {
+  try {
+    res.json({ success: true, data: { pages: await readLegalPages(), refundTiers: await getDefaultRefundTiers() } });
+  } catch (error) {
+    console.error('Admin legal page load failed:', error.message);
+    res.status(500).json({ success: false, message: 'Unable to load legal pages.' });
+  }
+});
+
+app.put('/api/admin/legal-pages', requireAuth, requireRole('admin'), async (req, res) => {
+  const pages = req.body?.pages;
+  const slugs = Object.keys(legalPageDefinitions);
+  if (!pages || typeof pages !== 'object' || Array.isArray(pages) || Object.keys(pages).length !== slugs.length
+    || slugs.some((slug) => !pages[slug] || typeof pages[slug].content !== 'string'
+      || pages[slug].content.length > 30_000 || typeof pages[slug].published !== 'boolean'
+      || (pages[slug].published && !pages[slug].content.trim())
+      || (pages[slug].published && pages[slug].content.trimStart().startsWith('STARTER DRAFT')))) {
+    return res.status(400).json({ success: false, message: 'Provide valid content and publication state for all three legal pages. Replace starter drafts before publishing.' });
+  }
+  const normalizedPages = Object.fromEntries(slugs.map((slug) => [slug, {
+    content: pages[slug].content,
+    published: pages[slug].published,
+  }]));
+  try {
+    const savedPages = await writeAdminSetting({ key: 'legal_pages', value: normalizedPages, adminId: req.user.id });
+    res.json({ success: true, data: { pages: await readLegalPages(), saved: Boolean(savedPages) } });
+  } catch (error) {
+    console.error('Admin legal page save failed:', error.message);
+    res.status(500).json({ success: false, message: 'Unable to save legal pages.' });
+  }
+});
+
+app.get('/api/public/legal-pages/:slug', async (req, res) => {
+  const definition = legalPageDefinitions[req.params.slug];
+  if (!definition) return res.status(404).json({ success: false, message: 'Legal page not found.' });
+  try {
+    const pages = await readLegalPages();
+    const page = pages[req.params.slug];
+    const responseData = { slug: req.params.slug, title: page.title, published: page.published, content: page.published ? page.content : null };
+    if (req.params.slug === 'refund-policy') responseData.refundTiers = page.published ? await getDefaultRefundTiers() : [];
+    res.json({ success: true, data: responseData });
+  } catch (error) {
+    console.error('Public legal page load failed:', error.message);
+    res.status(503).json({ success: false, message: 'Unable to load this page right now.' });
+  }
+});
+
 app.get('/api/admin/settings', requireAuth, requireRole('admin'), async (req, res) => {
   try {
     const settings = await readAdminSettings();
@@ -3590,6 +3675,10 @@ app.post('/api/email/send', requireAuth, requireRole('admin'), async (req, res) 
     console.error('Admin email send failed:', error.message);
     res.status(502).json({ success: false, message: 'Failed to send email.' });
   }
+});
+
+app.use('/api', (_req, res) => {
+  res.status(404).json({ success: false, message: 'API endpoint not found.' });
 });
 
 const autoApproveOverdueCancellationRequests = async () => {

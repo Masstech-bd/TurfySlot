@@ -49,6 +49,13 @@ if (!['mongodb', 'postgres'].includes(providerName)) {
     const ipnUrl = 'https://api.example.com/api/payments/surjopay/webhook';
     await database.writeAdminSetting({ key: 'shurjopay_ipn_url', value: ipnUrl, adminId });
     assert.equal((await database.readAdminSettings()).shurjopay_ipn_url, ipnUrl);
+    const legalPages = {
+      'privacy-policy': { content: 'Reviewed privacy policy text.', published: true },
+      'terms-of-service': { content: 'Reviewed service terms.', published: false },
+      'refund-policy': { content: 'Refund policy explanation.', published: true },
+    };
+    await database.writeAdminSetting({ key: 'legal_pages', value: legalPages, adminId });
+    assert.deepEqual((await database.readAdminSettings()).legal_pages, legalPages, 'legal page content and publication state must persist');
     for (const key of ['platform_fee_enabled', 'gateway_fee_enabled', 'show_fee_breakdown', 'owner_billing_switch_enabled']) {
       await database.writeAdminSetting({ key, value: false, adminId });
       assert.equal((await database.readAdminSettings())[key], false, `${key} must persist when disabled`);

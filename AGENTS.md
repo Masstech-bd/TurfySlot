@@ -128,6 +128,8 @@ old one is not progress.
 - Section 76. Cancellation Refund Tiers Measured from Booking Creation
 - Section 77. Admin-Configurable Booking Payment Hold Duration
 - Section 78. Bulk Weekly and Date-Range Slot Schedules
+- Section 79. Admin-Managed Legal Pages and Public Support Contacts
+- Section 80. Branded App-Startup Loading Screen
 - Section 63. Automatic Booking Completion and Owner Override
 - Section 62. Explicit Weekly Availability Required for Public Turf Listings
 
@@ -262,7 +264,7 @@ Security, scalability, maintainability, portability, and infrastructure independ
 | Routing | React Router v7 |
 | Date handling | date-fns |
 | Backend | Node.js + Express (TypeScript) |
-| Database | PostgreSQL (default) and MongoDB Atlas (alternative provider; see Section 54) |
+| Database | PostgreSQL (default) and MongoDB (Atlas or self-hosted; see Section 54) |
 | Cache / Queue | Redis + BullMQ — used for slot-lock TTLs, rate limiting, and background jobs (booking-reminder scheduling, expired-lock cleanup, async email/SMS sending) |
 | File storage | Local disk on the VPS (served via Nginx/Express static route). No object-storage service (e.g. MinIO/S3) for MVP — the VPS has enough disk. Must have a scheduled backup script (cron) for the uploads directory. |
 | Email | Self-hosted Postal SMTP server |
@@ -4804,12 +4806,12 @@ under real load — not a blocker for initial build.
 
 ## 54. Database Provider Portability (PostgreSQL + MongoDB)
 
-The application must support PostgreSQL and MongoDB Atlas as alternative database providers while preserving the business rules and security requirements in Sections 1-53.
+The application must support PostgreSQL and MongoDB as alternative database providers, including MongoDB Atlas and self-hosted Coolify deployments, while preserving the business rules and security requirements in Sections 1-53.
 
 ### 54.1 Provider Selection
 
 - Each running deployment uses exactly one database provider, selected at startup with `DB_PROVIDER=postgres` or `DB_PROVIDER=mongodb`.
-- PostgreSQL remains the default provider and the primary self-hosted production option described in Section 1.1. MongoDB Atlas is an additional supported option.
+- PostgreSQL remains the default provider and the primary self-hosted production option described in Section 1.1. MongoDB is also supported, including MongoDB Atlas and self-hosted Coolify deployments.
 - The application must not dual-write, replicate, or silently split application data across both providers. One provider is the source of truth for each deployment.
 - Changing providers requires an explicit data migration and planned maintenance. Changing `DB_PROVIDER` alone must never make existing data appear migrated.
 
@@ -4824,20 +4826,20 @@ The application must support PostgreSQL and MongoDB Atlas as alternative databas
 
 - Turf, user, staff, booking, payment, cancellation/refund, wallet/withdrawal, review, dispute, notification, audit, settings, and feature-flag data must remain available through either provider.
 - Shared application services must enforce the same validation, role and turf scoping, pricing, cancellation, refund, and audit rules independently of the selected database.
-- Booking slot reservations and related booking records must be atomic, concurrency-safe, and idempotent with either provider. MongoDB deployments must use transactions on a replica set or Atlas cluster; startup must not claim booking support if transaction capability is unavailable.
+- Booking slot reservations and related booking records must be atomic, concurrency-safe, and idempotent with either provider. MongoDB deployments must use transactions on a replica set or sharded cluster; startup must not claim booking support if transaction capability is unavailable.
 - Money must retain exact decimal semantics. Unique constraints, required indexes, UTC timestamp behavior, and referential integrity must be implemented with each provider's native mechanisms.
 - Provider-specific database queries must stay behind persistence adapters/repositories; HTTP routes and business rules must not branch on provider-specific query syntax.
 
 ### 54.4 Schema and Data Migration
 
 - PostgreSQL schema changes must use versioned migrations; MongoDB indexes and document-shape changes must also use versioned migrations.
-- A documented migration procedure between providers must preserve IDs, relationships, monetary values, statuses, audit history, and timestamps, with validation/reconciliation before the new provider is made active.
+- Documented migration procedures between providers and between deployments of the same provider must preserve IDs, relationships, monetary values, statuses, audit history, and timestamps, with validation/reconciliation before the destination is made active.
 - Backups and restore procedures must be documented and verified for each supported provider.
 
 ### 54.5 Definition of Done
 
 - [ ] A deployment can start with PostgreSQL selected and complete the Section 48 MVP flows using PostgreSQL.
-- [ ] A deployment can start with MongoDB selected and complete the same Section 48 MVP flows using MongoDB Atlas.
+- [ ] A deployment can start with MongoDB selected and complete the same Section 48 MVP flows using MongoDB Atlas or a self-hosted Coolify MongoDB replica set.
 - [ ] Automated persistence and integration tests run against both providers and confirm equivalent business-rule outcomes.
 - [ ] Concurrent booking attempts cannot double-book a slot on either provider.
 - [ ] Missing or invalid provider configuration fails closed without exposing credentials.
@@ -5526,3 +5528,49 @@ The application must support PostgreSQL and MongoDB Atlas as alternative databas
 - [ ] Public availability, booking prices, manual bookings, and online bookings use the same effective date schedule and existing pricing rules.
 - [ ] Date-range-only schedules do not make a turf publicly listed without at least one saved weekly slot.
 - [ ] PostgreSQL and MongoDB generate and persist equivalent schedules; invalid ranges are rejected server-side.
+
+
+## 79. Admin-Managed Legal Pages and Public Support Contacts
+
+### 79.1 Scope
+
+- The public footer displays these support contacts: `masstech.ctg@gmail.com`, `013218850`, `01712906544`, and `3rd Floor, Hafez Plaza, 425 Pathantuli, Chittagong`.
+- The footer links to public Privacy Policy, Terms of Service, and Refund Policy pages.
+- Admins can edit, preview, and explicitly publish or unpublish the Privacy Policy and Terms of Service content. Initial starter content is an unpublished draft and must clearly require admin review; it must not be presented as approved legal advice or claim practices not specified by the platform.
+- Legal page content is plain text with paragraphs/headings rendered as text; arbitrary HTML is not accepted or executed.
+- The Refund Policy page includes explanatory content editable by admins and a refund matrix generated from the currently active global default cancellation policy tiers in the existing Policy Engine. It is not a second source of cancellation percentages. The page explains that turf/owner policies may differ, booking-specific terms are shown on the booking, player cancellation requests require owner review and can be auto-approved after 24 hours, and gateway fees are non-refundable. Manual-booking and owner-cancellation differences follow Sections 10, 47, 65, and 66.
+- The refund matrix uses elapsed hours since booking creation as defined by Section 76. The Policy Engine remains the admin control for cancellation tiers; this section adds no separate refund-rate controls.
+- The selected/published content and publication state persist through both supported database providers using existing platform settings storage. Legal-page changes are audit logged. Public endpoints expose only published content; admin endpoints are role-protected.
+- This section does not add policy acceptance tracking, electronic signatures, email/notification types, legal claims, or data retention practices.
+
+### 79.2 Definition of Done
+
+- [ ] Public footer displays the support email, both supplied phone strings, and supplied address.
+- [ ] Footer links open the Privacy Policy, Terms of Service, and Refund Policy pages on mobile and desktop.
+- [ ] Admins can edit, preview, publish, and unpublish the Privacy Policy and Terms of Service. Unpublished drafts are not returned by public endpoints.
+- [ ] Initial legal copy is clearly marked as an unreviewed starter draft and cannot be published without explicit admin action.
+- [ ] Refund Policy explanations are admin-editable, while the displayed refund tiers are derived from the active global default policy and change when that policy changes.
+- [ ] Refund explanations accurately distinguish online/manual and player/owner cancellations and disclose the 24-hour review flow and non-refundable gateway fee.
+- [ ] User-entered content is safely rendered as text, not executable markup.
+- [ ] Legal content and publication state persist consistently in PostgreSQL and MongoDB; mutations are audit logged.
+- [ ] Existing cancellation calculations and booking-specific policy resolution remain unchanged.
+
+
+## 80. Branded App-Startup Loading Screen
+
+### 80.1 Scope
+
+- While the application restores the current session during startup, display a full-screen TurfySlot-branded loading screen instead of plain loading text.
+- The screen shows only a small, white football with black hexagonal panels on the existing dark-green background. The ball performs a simple repeating kick-like hop while spinning continuously without pauses, staying near the center; no visible text, labels, field markings, progress bars, or other decoration is displayed.
+- The football image is bundled locally with the application and must come from a source with an explicit license permitting reuse; retain any required attribution in the repository. Do not fetch it from a remote host at runtime, and add no external font, API, or runtime service.
+- The screen remains accessible with a non-visible loading status label, and the animation respects the user's reduced-motion preference.
+- Session restoration must have an 8-second maximum request/lock wait; if refresh times out or fails, stop the loading screen and continue as a guest rather than leaving the app stuck.
+- This screen is limited to app startup/session restoration. It does not replace routine page, dashboard, booking, upload, or API loading states.
+
+### 80.2 Definition of Done
+
+- [ ] Initial session restoration displays the branded loading screen, then the correct signed-in or guest experience appears when restoration completes.
+- [ ] The screen contains only a small, white football with black hexagonal panels and a kick-like hop with uninterrupted spin, no visible text or extra decorations.
+- [ ] The football animation is self-contained and honors reduced-motion preferences.
+- [ ] An unavailable or unresponsive refresh endpoint cannot keep the startup loading screen visible beyond 8 seconds; the app continues in guest mode.
+- [ ] Routine data-loading behavior and existing authentication/session logic remain unchanged.

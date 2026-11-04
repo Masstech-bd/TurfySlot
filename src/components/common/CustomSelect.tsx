@@ -107,7 +107,7 @@ export function ClickableDatePicker({ value, onChange, min, className = '', show
       <span className="min-w-0 flex-1 truncate">{fullDate(selectedDate)}</span>
       <ChevronDown className={`h-4 w-4 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
     </button>
-    {open && position && createPortal(<div ref={menuRef} role="dialog" aria-label="Choose a date" style={{ position: 'fixed', top: position.top, left: position.left, width: position.width, maxHeight: position.maxHeight }} className="z-[10000] overflow-auto rounded-2xl border border-slate-200 bg-white p-4 text-[#1A2E24] shadow-[0_20px_60px_rgba(0,0,0,0.25)]">
+    {open && position && createPortal(<div ref={menuRef} role="dialog" aria-label="Choose a date" style={{ position: 'fixed', top: position.top, left: position.left, width: position.width, maxHeight: position.maxHeight }} className="no-scrollbar z-[10000] overflow-auto rounded-2xl border border-slate-200 bg-white p-4 text-[#1A2E24] shadow-[0_20px_60px_rgba(0,0,0,0.25)]">
       <div className="mb-3 flex items-center justify-between">
         <button type="button" aria-label="Previous month" onClick={() => setViewMonth(new Date(viewMonth.getFullYear(), viewMonth.getMonth() - 1, 1))} className="rounded-lg p-2 hover:bg-slate-100"><ChevronLeft className="h-4 w-4" /></button>
         <strong className="text-sm">{new Intl.DateTimeFormat('en', { month: 'long', year: 'numeric' }).format(viewMonth)}</strong>

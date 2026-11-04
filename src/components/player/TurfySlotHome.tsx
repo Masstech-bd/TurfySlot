@@ -507,7 +507,7 @@ export const TurfySlotHome: React.FC<TurfySlotHomeProps> = ({
         </div>
 
         {/* Slide Navigation Dots */}
-        <div className="absolute right-6 sm:right-10 bottom-1/3 z-20 flex flex-col gap-3">
+        <div className="absolute right-6 sm:right-10 bottom-6 sm:bottom-1/3 z-20 flex flex-row sm:flex-col gap-3">
           {heroSlides.map((_, dotIdx) => (
             <button
               key={dotIdx}
@@ -1287,14 +1287,14 @@ export const TurfySlotHome: React.FC<TurfySlotHomeProps> = ({
       {/* ========================================================================= */}
       {/* 2.6 ALL TURFS (SECTION 53.6)                                              */}
       {/* ========================================================================= */}
-      <section id="all-turfs" className="py-20 max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+      <section id="all-turfs" className="py-12 sm:py-20 max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
         <span id="turfs" className="sr-only" />
-        <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-10">
+        <div className="mb-6 flex flex-col gap-4 sm:mb-8 md:flex-row md:items-end md:justify-between md:gap-6">
           <div>
-            <span className="inline-block text-xs font-bold uppercase tracking-widest text-[#3e780a] bg-[#C8FF5E]/15 border border-[#C8FF5E]/30 px-4 py-1.5 rounded-full mb-2.5">
+            <span className="mb-2 inline-flex items-center rounded-full border border-[#C8FF5E]/30 bg-[#C8FF5E]/15 px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-[#3e780a] sm:mb-2.5 sm:px-4 sm:text-xs">
               Explore Venues
             </span>
-            <h2 className="font-playfair text-3xl sm:text-5xl font-extrabold text-[#0A1E14]">
+            <h2 className="font-playfair text-3xl font-extrabold text-[#0A1E14] sm:text-5xl">
               All Turfs
             </h2>
             <p className="text-xs sm:text-sm text-[#5A6A60] mt-1 max-w-xl">
@@ -1303,13 +1303,13 @@ export const TurfySlotHome: React.FC<TurfySlotHomeProps> = ({
           </div>
 
           {/* Sort Dropdown */}
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-[#5A6A60] font-semibold">Sort by:</span>
+          <div className="flex w-full flex-col gap-1.5 sm:w-auto sm:flex-row sm:items-center sm:gap-2">
+            <span className="text-[11px] font-semibold text-[#5A6A60] sm:text-xs">Sort turfs by</span>
             <CustomSelect
               ariaLabel="Sort turfs"
               value={allTurfsSort}
               onChange={setAllTurfsSort}
-              triggerClassName="min-w-48 border border-[#E2E8E5] bg-white px-3.5 py-2 text-xs font-bold shadow-sm"
+              triggerClassName="w-full border border-[#DCE5DF] bg-white px-4 py-3 text-sm font-bold shadow-sm sm:min-w-48 sm:py-2.5 sm:text-xs"
               options={[
                 { value: 'relevance', label: 'Relevance' }, { value: 'price_asc', label: 'Price: Low to High' },
                 { value: 'price_desc', label: 'Price: High to Low' }, { value: 'rating_desc', label: 'Rating: High to Low' },
@@ -1319,18 +1319,18 @@ export const TurfySlotHome: React.FC<TurfySlotHomeProps> = ({
           </div>
         </div>
 
-        <div className="mb-5 overflow-hidden rounded-2xl border border-[#E2E8E5] bg-white shadow-sm">
-          <button type="button" aria-expanded={showPriceRatingFilters} aria-controls="price-rating-filters" onClick={() => setShowPriceRatingFilters((open) => !open)} className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left hover:bg-[#F8FAF8]">
-            <span>
+        <div className="mb-4 overflow-hidden rounded-2xl border border-[#E2E8E5] bg-white shadow-sm sm:mb-5">
+          <button type="button" aria-expanded={showPriceRatingFilters} aria-controls="price-rating-filters" onClick={() => setShowPriceRatingFilters((open) => !open)} className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left transition-colors hover:bg-[#F8FAF8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#6db31e] sm:gap-4 sm:px-5 sm:py-4">
+            <span className="min-w-0">
               <span className="block text-sm font-bold text-[#1A2E24]">Price and rating</span>
-              <span className="mt-0.5 block text-xs text-[#718078]">Set a price range and minimum turf rating</span>
+              <span className="mt-0.5 block text-xs leading-relaxed text-[#718078]">Set your hourly budget and minimum rating</span>
             </span>
-            <span className="flex shrink-0 items-center gap-2 text-xs font-semibold text-[#3e780a]">
-              {(minimumPrice || maximumPrice || minimumRating) ? 'Filters applied' : 'Any price · Any rating'}
+            <span className="flex max-w-[46%] shrink-0 items-center gap-1.5 text-right text-[11px] font-bold text-[#3e780a] sm:max-w-none sm:gap-2 sm:text-xs">
+              <span className="leading-snug">{(minimumPrice || maximumPrice || minimumRating) ? 'Filters applied' : 'Any price · Any rating'}</span>
               <ChevronDown className={`h-4 w-4 transition-transform ${showPriceRatingFilters ? 'rotate-180' : ''}`} />
             </span>
           </button>
-          {showPriceRatingFilters && <div id="price-rating-filters" className="grid grid-cols-1 gap-5 border-t border-[#E2E8E5] p-5 md:grid-cols-3">
+          {showPriceRatingFilters && <div id="price-rating-filters" className="grid grid-cols-1 gap-5 border-t border-[#E2E8E5] bg-[#FBFCFB] p-4 sm:p-5 md:grid-cols-3">
           <label className="min-w-0 text-xs font-semibold text-[#5A6A60]">
             <span className="flex items-center justify-between gap-2">Minimum price per hour <span className="font-bold text-[#0A1E14]">{minimumPrice ? `৳${Number(minimumPrice).toLocaleString()}` : 'Any'}</span></span>
             <input aria-label="Minimum price per hour" type="range" min="0" max={maxPriceLimit} step="100" value={minimumPrice === '' ? 0 : Math.min(Number(minimumPrice), maxPriceLimit)} onChange={(event) => {
@@ -1358,15 +1358,17 @@ export const TurfySlotHome: React.FC<TurfySlotHomeProps> = ({
         </div>
 
         {/* Filter Chips Bar */}
-        <div className="flex items-center gap-2 flex-wrap mb-10 pb-2 border-b border-[#E2E8E5]">
+        <div className="-mx-4 mb-7 flex snap-x snap-mandatory items-center gap-2 overflow-x-auto overscroll-x-contain border-b border-[#E2E8E5] px-4 pb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:mx-0 sm:mb-10 sm:flex-wrap sm:overflow-visible sm:px-0 sm:pb-2">
           {['All Sports', 'Football', 'Cricket', 'Futsal', 'Basketball', '4+ Rating', 'Open Now'].map((filter) => (
             <button
               key={filter}
+              type="button"
+              aria-pressed={allTurfsSportFilter === filter}
               onClick={() => setAllTurfsSportFilter(filter)}
-              className={`px-4 py-2 rounded-full text-xs font-bold transition-all cursor-pointer ${
+              className={`min-h-11 shrink-0 snap-start rounded-full border px-4 py-2 text-xs font-bold transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6db31e] focus-visible:ring-offset-2 ${
                 allTurfsSportFilter === filter
-                  ? 'bg-[#0A1E14] text-[#C8FF5E] shadow-sm'
-                  : 'bg-[#F0F3F1] hover:bg-[#E2E8E5] text-[#1A2E24]'
+                  ? 'border-[#0A1E14] bg-[#0A1E14] text-[#C8FF5E] shadow-sm'
+                  : 'border-[#E2E8E5] bg-white text-[#1A2E24] hover:border-[#B5C5BA] hover:bg-[#F5F8F6]'
               }`}
             >
               {filter}
@@ -1375,7 +1377,7 @@ export const TurfySlotHome: React.FC<TurfySlotHomeProps> = ({
         </div>
 
         {/* 3-Column Turf Cards Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-7">
+        <div className="grid grid-cols-1 gap-5 md:grid-cols-2 md:gap-6 lg:grid-cols-3 lg:gap-7">
           {filteredAndSortedTurfs.map((turf, idx) => {
             const isFav = favorites.includes(turf.id);
             const turfBadge = idx === 0 ? 'Premium' : idx === 1 ? 'Top Rated' : 'Available Today';
@@ -1389,7 +1391,7 @@ export const TurfySlotHome: React.FC<TurfySlotHomeProps> = ({
                 className="bg-white rounded-3xl border border-[#E2E8E5] overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 flex flex-col justify-between group"
               >
                 {/* Photo & Badges */}
-                <div className="relative h-52 overflow-hidden">
+                <div className="relative h-48 overflow-hidden sm:h-52">
                   <img
                     src={cardImage}
                     alt={turf.name}
@@ -1416,7 +1418,7 @@ export const TurfySlotHome: React.FC<TurfySlotHomeProps> = ({
                 </div>
 
                 {/* Details */}
-                <div className="p-6 flex-1 flex flex-col justify-between space-y-4">
+                <div className="flex flex-1 flex-col justify-between space-y-4 p-5 sm:p-6">
                   <div className="space-y-2">
                     <h3 className="font-playfair text-xl font-bold text-[#0A1E14] group-hover:text-[#6db31e] transition-colors">
                       {turf.name}
@@ -2084,9 +2086,12 @@ export const TurfySlotHome: React.FC<TurfySlotHomeProps> = ({
               <h5 className="text-sm font-bold text-white tracking-wider">Support</h5>
               <ul className="space-y-2 text-xs text-[#7A8A80]">
                 <li><span className="text-white/60">Help Center &amp; FAQs</span></li>
-                <li><span className="text-white/60">support@turfyslot.com</span></li>
-                <li><span className="text-white/60">+880 1711-223344</span></li>
-                <li><span className="text-white/60">Banani, Dhaka 1213</span></li>
+                <li><a href="mailto:masstech.ctg@gmail.com" className="text-white/60 hover:text-[#C8FF5E]">masstech.ctg@gmail.com</a></li>
+                <li className="flex flex-col items-start gap-1">
+                  <a href="tel:013218850" className="text-white/60 hover:text-[#C8FF5E]">013218850</a>
+                  <a href="tel:01712906544" className="text-white/60 hover:text-[#C8FF5E]">01712906544</a>
+                </li>
+                <li><span className="text-white/60">3rd Floor, Hafez Plaza, 425 Pathantuli, Chittagong</span></li>
               </ul>
             </div>
           </div>
@@ -2095,9 +2100,9 @@ export const TurfySlotHome: React.FC<TurfySlotHomeProps> = ({
           <div className="pt-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-[#5A6A60]">
             <p>&copy; 2026 TurfySlot. All rights reserved.</p>
             <div className="flex items-center gap-6">
-              <span className="hover:text-white cursor-pointer">Terms of Service</span>
-              <span className="hover:text-white cursor-pointer">Privacy Policy</span>
-              <span className="hover:text-white cursor-pointer">Refund Matrix (24h/6h)</span>
+              <a href="/terms-of-service" className="hover:text-white">Terms of Service</a>
+              <a href="/privacy-policy" className="hover:text-white">Privacy Policy</a>
+              <a href="/refund-policy" className="hover:text-white">Refund Policy</a>
             </div>
           </div>
         </div>

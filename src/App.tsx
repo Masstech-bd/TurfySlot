@@ -6,6 +6,8 @@ import { GetStartedModal } from './components/common/GetStartedModal';
 import { EmailVerificationModal } from './components/common/EmailVerificationModal';
 import { ScrollToTopButton } from './components/common/ScrollToTopButton';
 import { AppDialogHost } from './components/common/AppDialog';
+import { LegalPage, LegalPageSlug } from './components/common/LegalPage';
+import { StartupLoadingScreen } from './components/common/StartupLoadingScreen';
 
 const PlayerPortal = lazy(() => import('./components/player/PlayerPortal').then((module) => ({ default: module.PlayerPortal })));
 const OwnerPortal = lazy(() => import('./components/owner/OwnerPortal').then((module) => ({ default: module.OwnerPortal })));
@@ -14,9 +16,11 @@ const AdminPortal = lazy(() => import('./components/admin/AdminPortal').then((mo
 
 const AppContent: React.FC = () => {
   const { currentUser, isSessionRestoring } = useApp();
+  const legalPageSlug = window.location.pathname.slice(1) as LegalPageSlug;
+  const isLegalPage = ['privacy-policy', 'terms-of-service', 'refund-policy'].includes(legalPageSlug);
 
   if (isSessionRestoring) {
-    return <div className="flex min-h-screen items-center justify-center bg-[#07130c] text-sm font-medium text-slate-300" role="status">Restoring your session…</div>;
+    return <StartupLoadingScreen />;
   }
 
   return (
@@ -27,10 +31,13 @@ const AppContent: React.FC = () => {
       {/* Role-Specific Portal Content */}
       <main className="flex-1">
         <Suspense fallback={<div className="min-h-[40vh]" aria-label="Loading dashboard" />}>
-          {currentUser.role === 'player' && <PlayerPortal />}
-          {currentUser.role === 'turf_owner' && <OwnerPortal />}
-          {currentUser.role === 'staff' && <StaffPortal />}
-          {currentUser.role === 'admin' && <AdminPortal />}
+          {isLegalPage ? <LegalPage slug={legalPageSlug} />
+            : <>
+              {currentUser.role === 'player' && <PlayerPortal />}
+              {currentUser.role === 'turf_owner' && <OwnerPortal />}
+              {currentUser.role === 'staff' && <StaffPortal />}
+              {currentUser.role === 'admin' && <AdminPortal />}
+            </>}
         </Suspense>
       </main>
 

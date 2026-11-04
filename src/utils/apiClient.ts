@@ -9,19 +9,22 @@ export const setAccessToken = (token: string) => { accessToken = token; };
 const refreshAccessToken = async () => {
   if (refreshInFlight) return refreshInFlight;
   refreshInFlight = (async () => {
+    const controller = new AbortController();
+    const timeoutId = globalThis.setTimeout(() => controller.abort(), 8000);
     try {
       const refresh = async () => {
-        const response = await fetch('/api/auth/refresh', { method: 'POST', credentials: 'include' });
+        const response = await fetch('/api/auth/refresh', { method: 'POST', credentials: 'include', signal: controller.signal });
         const result = await response.json();
         if (!response.ok || !result?.success || !result?.data?.accessToken) return null;
         accessToken = result.data.accessToken;
         return result.data;
       };
       if (typeof navigator !== 'undefined' && navigator.locks) {
-        return await navigator.locks.request('turfy-session-refresh', refresh);
+        return await navigator.locks.request('turfy-session-refresh', { signal: controller.signal }, refresh);
       }
       return await refresh();
     } catch { return null; }
+    finally { globalThis.clearTimeout(timeoutId); }
   })();
   try { return await refreshInFlight; }
   finally { refreshInFlight = null; }

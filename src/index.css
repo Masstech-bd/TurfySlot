@@ -43,6 +43,36 @@
   --secondary-lime: #C8FF5E;
 }
 
+.startup-loader {
+  background: #07130c;
+}
+
+.startup-loader__kick {
+  animation: startup-ball-kick 1.8s ease-in-out infinite;
+}
+
+.startup-loader__ball {
+  animation: startup-ball-spin 1.8s linear infinite;
+}
+
+@keyframes startup-ball-kick {
+  0%, 16%, 100% { transform: translate(0, 0) scale(1); }
+  22% { transform: translate(-3px, 2px) scale(1.08, .92); }
+  48% { transform: translate(10px, -20px) scale(.96, 1.04); }
+  72% { transform: translate(2px, -8px) scale(1); }
+}
+
+@keyframes startup-ball-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .startup-loader__kick,
+  .startup-loader__ball {
+    animation: none;
+  }
+}
+
 /* Site-wide scrollbar themed in the brand's lime green */
 html {
   scrollbar-width: thin;

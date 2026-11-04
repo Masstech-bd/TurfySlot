@@ -16,6 +16,7 @@ import {
   Clock,
   PlusCircle,
   FileCheck,
+  FileText,
   Scale,
   Settings as SettingsIcon,
   Heart,
@@ -761,8 +762,11 @@ export const Navbar: React.FC = () => {
                         : 'text-white/80 hover:text-[#C8FF5E] hover:bg-white/[0.05]'
                     }`}
                   >
-                    <span>Saved Grounds</span>
-                    <span className="text-xs text-white/50">{favorites.length}</span>
+                    <span className="flex items-center gap-2">
+                      <Heart className="w-4 h-4" />
+                      <span>Saved Grounds</span>
+                    </span>
+                    <span className={`text-xs ${playerActiveTab === 'favorites' ? 'text-[#0A1E14]/60' : 'text-white/50'}`}>{favorites.length}</span>
                   </button>
                 </nav>
               )}
@@ -1056,6 +1060,21 @@ export const Navbar: React.FC = () => {
               >
                 <SettingsIcon className="w-4 h-4" />
                 <span>Commission & Platform Settings</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  setAdminActiveTab('legal_pages');
+                }}
+                className={`text-left font-semibold text-sm py-2 px-3 rounded-xl flex items-center gap-2 ${
+                  adminActiveTab === 'legal_pages'
+                    ? 'bg-[#C8FF5E] text-[#0A1E14]'
+                    : 'text-white/80 hover:text-[#C8FF5E] hover:bg-white/[0.05]'
+                }`}
+              >
+                <FileText className="w-4 h-4" />
+                <span>Legal Pages</span>
               </button>
 
               <button

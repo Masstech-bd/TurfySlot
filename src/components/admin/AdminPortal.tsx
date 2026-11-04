@@ -36,6 +36,9 @@ import { showAppAlert, showAppPrompt } from '../common/AppDialog';
 
 const EMPTY_SMTP_CONFIGS: SmtpConfig[] = [];
 const EMPTY_PAYMENT_GATEWAY_CONFIGS: PaymentGatewayConfig[] = [];
+const LEGAL_PAGE_SLUGS = ['privacy-policy', 'terms-of-service', 'refund-policy'] as const;
+type AdminLegalPageSlug = typeof LEGAL_PAGE_SLUGS[number];
+interface AdminLegalPageDraft { title: string; content: string; published: boolean; }
 
 export const AdminPortal: React.FC = () => {
   const {
@@ -143,6 +146,12 @@ export const AdminPortal: React.FC = () => {
   const [turfCorrectionMessages, setTurfCorrectionMessages] = useState<Record<string, string>>({});
   const [policyDraft, setPolicyDraft] = useState<CancellationPolicy | null>(null);
   const [policySaving, setPolicySaving] = useState(false);
+  const [legalPages, setLegalPages] = useState<Record<AdminLegalPageSlug, AdminLegalPageDraft> | null>(null);
+  const [legalPageSelection, setLegalPageSelection] = useState<AdminLegalPageSlug>('privacy-policy');
+  const [legalPagesLoading, setLegalPagesLoading] = useState(false);
+  const [legalPagesSaving, setLegalPagesSaving] = useState(false);
+  const [legalPagesError, setLegalPagesError] = useState('');
+  const [legalPagesMessage, setLegalPagesMessage] = useState('');
   const [policyError, setPolicyError] = useState('');
 
   useEffect(() => {
@@ -815,6 +824,52 @@ export const AdminPortal: React.FC = () => {
     return () => { cancelled = true; };
   }, [activeTab]);
 
+  useEffect(() => {
+    if (activeTab !== 'legal_pages') return;
+    let cancelled = false;
+    setLegalPagesLoading(true);
+    setLegalPagesError('');
+    apiFetch('/api/admin/legal-pages')
+      .then(async (response) => {
+        const result = await response.json();
+        if (!response.ok || !result?.success || !result.data?.pages) {
+          throw new Error(result?.message || 'Unable to load legal pages.');
+        }
+        if (!cancelled) setLegalPages(result.data.pages);
+      })
+      .catch((error) => {
+        if (!cancelled) setLegalPagesError(error instanceof Error ? error.message : 'Unable to load legal pages.');
+      })
+      .finally(() => { if (!cancelled) setLegalPagesLoading(false); });
+    return () => { cancelled = true; };
+  }, [activeTab]);
+
+  const saveLegalPages = async () => {
+    if (!legalPages || legalPagesSaving) return;
+    setLegalPagesSaving(true);
+    setLegalPagesError('');
+    setLegalPagesMessage('');
+    try {
+      const response = await apiFetch('/api/admin/legal-pages', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pages: legalPages }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result?.success || !result.data?.pages) {
+        throw new Error(result?.message || 'Unable to save legal pages.');
+      }
+      setLegalPages(result.data.pages);
+      setLegalPagesMessage(legalPages[legalPageSelection].published
+        ? 'Changes saved and published.'
+        : 'Draft saved. This page is not visible to the public.');
+    } catch (error) {
+      setLegalPagesError(error instanceof Error ? error.message : 'Unable to save legal pages.');
+    } finally {
+      setLegalPagesSaving(false);
+    }
+  };
+
   const recordSubscriptionPayment = async (ownerId: string) => {
     const reference = (await showAppPrompt('Enter the offline subscription payment receipt/reference:'))?.trim();
     if (!reference) return;
@@ -908,6 +963,16 @@ export const AdminPortal: React.FC = () => {
             >
               <Sliders className="w-3.5 h-3.5" />
               <span>Settings & Commission</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('legal_pages')}
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
+                activeTab === 'legal_pages' ? 'bg-[#C8FF5E] text-[#0A1E14] shadow-md shadow-[#C8FF5E]/20' : 'text-white/70 hover:text-white hover:bg-white/[0.06]'
+              }`}
+            >
+              <FileText className="w-3.5 h-3.5" />
+              <span>Legal Pages</span>
             </button>
 
             <button
@@ -2993,6 +3058,129 @@ export const AdminPortal: React.FC = () => {
           <div className="mt-6">
             <TournamentsView />
           </div>
+        )}
+
+        {activeTab === 'legal_pages' && (
+          <section className="mt-6 space-y-5">
+            <header className="rounded-2xl border border-white/10 bg-[#0A1E14] p-5 sm:p-6">
+              <h2 className="flex items-center gap-2 text-base font-bold text-white">
+                <FileText className="h-5 w-5 text-[#C8FF5E]" /> Public Legal Pages
+              </h2>
+              <p className="mt-2 max-w-3xl text-xs leading-5 text-white/60">
+                Edit the public Privacy Policy, Terms of Service, and Refund Policy. Drafts stay private until you explicitly publish them. Content is rendered as plain text; HTML is not executed.
+              </p>
+            </header>
+
+            {legalPagesLoading && <p role="status" className="text-sm text-white/60">Loading legal page drafts…</p>}
+            {legalPagesError && <p role="alert" className="rounded-xl border border-rose-400/20 bg-rose-950/30 p-3 text-sm text-rose-200">{legalPagesError}</p>}
+            {legalPages && !legalPagesLoading && (
+              <div className="grid gap-5 lg:grid-cols-[220px_minmax(0,1fr)]">
+                <nav aria-label="Select legal page" className="flex gap-2 overflow-x-auto rounded-2xl border border-white/10 bg-[#0A1E14] p-2 lg:flex-col lg:overflow-visible">
+                  {LEGAL_PAGE_SLUGS.map((slug) => (
+                    <button
+                      key={slug}
+                      type="button"
+                      onClick={() => { setLegalPageSelection(slug); setLegalPagesMessage(''); }}
+                      className={`min-h-11 shrink-0 rounded-xl px-3 py-2 text-left text-xs font-bold transition-colors ${
+                        legalPageSelection === slug ? 'bg-[#C8FF5E] text-[#0A1E14]' : 'text-white/70 hover:bg-white/[0.06] hover:text-white'
+                      }`}
+                    >
+                      {legalPages[slug].title}
+                    </button>
+                  ))}
+                </nav>
+
+                <div className="space-y-4 rounded-2xl border border-white/10 bg-[#0A1E14] p-4 sm:p-6">
+                  {legalPageSelection !== 'refund-policy' && legalPages[legalPageSelection].content.startsWith('STARTER DRAFT') && (
+                    <p className="rounded-xl border border-amber-300/30 bg-amber-400/10 p-3 text-xs leading-5 text-amber-100">
+                      This starter text is not approved legal copy. Replace it with content reviewed for your business before publishing.
+                    </p>
+                  )}
+                  <label className="block text-xs font-semibold text-white/70" htmlFor="legal-page-content">
+                    {legalPages[legalPageSelection].title} content
+                    <textarea
+                      id="legal-page-content"
+                      value={legalPages[legalPageSelection].content}
+                      maxLength={30000}
+                      rows={18}
+                      onChange={(event) => {
+                        const content = event.target.value;
+                        setLegalPages((previous) => previous ? ({
+                          ...previous,
+                          [legalPageSelection]: { ...previous[legalPageSelection], content },
+                        }) : previous);
+                        setLegalPagesMessage('');
+                      }}
+                      className="mt-2 w-full resize-y rounded-xl border border-white/15 bg-[#07130c] p-4 text-sm leading-6 text-white outline-none focus:border-[#C8FF5E]/60"
+                      placeholder="Write page content using plain text. Separate paragraphs with a blank line; lines beginning with ## appear as section headings."
+                    />
+                    <span className="mt-1 block text-right text-[10px] text-white/40">{legalPages[legalPageSelection].content.length.toLocaleString()} / 30,000</span>
+                  </label>
+
+                  {legalPageSelection === 'refund-policy' && (
+                    <div className="space-y-3 rounded-xl border border-white/10 bg-[#07130c] p-4">
+                      <div>
+                        <h3 className="text-sm font-bold text-white">Public refund matrix preview</h3>
+                        <p className="mt-1 text-[11px] leading-5 text-white/50">Read-only and generated from the global default policy. Manage the rates in the Policy Engine. Tier boundaries are elapsed hours since booking creation.</p>
+                      </div>
+                      {(() => {
+                        const defaultPolicy = cancellationPolicies.find((policy) => policy.isDefault);
+                        return defaultPolicy?.tiers.length ? (
+                          <div className="overflow-x-auto rounded-lg border border-white/10">
+                            <table className="w-full min-w-[360px] text-left text-xs">
+                              <thead className="bg-white/[0.05] text-[10px] uppercase text-white/45">
+                                <tr><th className="px-3 py-2">Hours since booking</th><th className="px-3 py-2">Refund</th></tr>
+                              </thead>
+                              <tbody className="divide-y divide-white/10">
+                                {[...defaultPolicy.tiers].sort((a, b) => a.minHoursBefore - b.minHoursBefore).map((tier) => (
+                                  <tr key={tier.id}>
+                                    <td className="px-3 py-2 text-white/80">{tier.maxHoursBefore == null ? `${tier.minHoursBefore}+ hours` : `${tier.minHoursBefore}–<${tier.maxHoursBefore} hours`}</td>
+                                    <td className="px-3 py-2 font-bold text-[#C8FF5E]">{tier.refundPercentage}%</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        ) : <p className="text-xs text-amber-200">Global default cancellation policy could not be loaded.</p>;
+                      })()}
+                    </div>
+                  )}
+
+                  <label className="flex min-h-11 items-center gap-3 rounded-xl border border-white/10 bg-[#07130c] px-3 py-2 text-sm text-white/80">
+                    <input
+                      type="checkbox"
+                      checked={legalPages[legalPageSelection].published}
+                      onChange={(event) => {
+                        const published = event.target.checked;
+                        setLegalPages((previous) => previous ? ({
+                          ...previous,
+                          [legalPageSelection]: { ...previous[legalPageSelection], published },
+                        }) : previous);
+                        setLegalPagesMessage('');
+                      }}
+                      className="h-4 w-4 accent-[#C8FF5E]"
+                    />
+                    Publish this page publicly
+                  </label>
+
+                  {legalPagesMessage && <p role="status" className="text-xs font-semibold text-[#C8FF5E]">{legalPagesMessage}</p>}
+                  <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <a href={`/${legalPageSelection}`} target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center justify-center rounded-xl border border-white/15 px-4 py-2 text-xs font-bold text-white/75 hover:border-[#C8FF5E]/40 hover:text-[#C8FF5E]">
+                      Preview public page
+                    </a>
+                    <button
+                      type="button"
+                      disabled={legalPagesSaving}
+                      onClick={() => void saveLegalPages()}
+                      className="min-h-11 rounded-xl bg-[#C8FF5E] px-5 py-2 text-xs font-black text-[#0A1E14] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {legalPagesSaving ? 'Saving…' : legalPages[legalPageSelection].published ? 'Save & Publish' : 'Save Draft'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </section>
         )}
       </div>
 
