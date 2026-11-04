@@ -580,7 +580,7 @@ export const Navbar: React.FC = () => {
           {/* Mobile Menu Toggle Button */}
           <button
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full p-2 text-white transition-colors hover:text-[#C8FF5E] cursor-pointer"
+            className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full p-2 text-white transition-colors hover:text-[#C8FF5E] cursor-pointer md:hidden"
             aria-label="Toggle Navigation Menu"
             aria-expanded={mobileMenuOpen}
             aria-controls="mobile-navigation-menu"
