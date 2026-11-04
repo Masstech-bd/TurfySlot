@@ -2137,6 +2137,40 @@ const normalizeTurfInput = (body) => {
       previousEnd = end;
     }
   }
+  const isValidCalendarDate = (value) => /^\d{4}-\d{2}-\d{2}$/.test(value) &&
+    !Number.isNaN(new Date(`${value}T00:00:00Z`).getTime()) &&
+    new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value;
+  const dateRanges = operatingHours.dateRanges;
+  if (dateRanges !== undefined && !Array.isArray(dateRanges)) return { error: 'Date-range availability must be a list.' };
+  const validatedDateRanges = (dateRanges || []).map((range) => {
+    if (!range || !isValidCalendarDate(String(range.startDate || '')) || !isValidCalendarDate(String(range.endDate || '')) ||
+        range.startDate > range.endDate || !Array.isArray(range.slots)) return null;
+    const slots = range.slots.map((slot) => ({ startTime: String(slot?.startTime || ''), endTime: String(slot?.endTime || '') }))
+      .sort((a, b) => a.startTime.localeCompare(b.startTime));
+    let previousEnd = -1;
+    for (const slot of slots) {
+      const validSlotTime = (value, allow24 = false) => /^(?:[01]\d|2[0-3]):(?:00|30)$/.test(value) || (allow24 && value === '24:00');
+      if (!validSlotTime(slot.startTime) || !validSlotTime(slot.endTime, true)) return null;
+      const toMinutes = (value) => { const [hour, minute] = value.split(':').map(Number); return hour * 60 + minute; };
+      const start = toMinutes(slot.startTime);
+      const end = toMinutes(slot.endTime);
+      if (end - start !== 60 || start < previousEnd) return null;
+      previousEnd = end;
+    }
+    return { startDate: range.startDate, endDate: range.endDate, slots };
+  });
+  if (validatedDateRanges.some((range) => !range)) return { error: 'Date-range schedules must contain valid, non-overlapping one-hour slots.' };
+  const sortedDateRanges = [...validatedDateRanges].sort((a, b) => a.startDate.localeCompare(b.startDate));
+  for (let index = 1; index < sortedDateRanges.length; index += 1) {
+    if (sortedDateRanges[index].startDate <= sortedDateRanges[index - 1].endDate) return { error: 'Date-range schedules may not overlap.' };
+  }
+  const dhakaToday = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Dhaka' }).format(new Date());
+  const dateLimit = new Date(`${dhakaToday}T00:00:00Z`);
+  dateLimit.setUTCDate(dateLimit.getUTCDate() + 365);
+  const latestScheduleDate = dateLimit.toISOString().slice(0, 10);
+  if (sortedDateRanges.some((range) => range.endDate >= dhakaToday && range.endDate > latestScheduleDate)) {
+    return { error: 'Date-range schedules cannot extend more than 365 days into the future.' };
+  }
   if (!name || !address || !Number.isFinite(basePricePerHour) || basePricePerHour <= 0 || sportTypes.length === 0) {
     return { error: 'Turf name, address, positive hourly price, and at least one sport type are required.' };
   }
@@ -2170,7 +2204,7 @@ const normalizeTurfInput = (body) => {
       longitude: body.longitude == null ? null : Number(body.longitude),
       sportTypes, amenities, photos,
       basePricePerHour,
-      operatingHours,
+      operatingHours: { ...operatingHours, ...(dateRanges !== undefined ? { dateRanges: sortedDateRanges } : {}) },
       pricingRules: validatedRules,
     },
   };

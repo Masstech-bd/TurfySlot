@@ -281,6 +281,23 @@ if (!['mongodb', 'postgres'].includes(providerName)) {
       ...bookingInput, actorId: staffResult.user.id, actorRole: 'staff',
       idempotencyKey: `manual-booking-staff-denied-${suffix}`,
     }), /permission to create manual bookings is required/);
+
+    await database.updateOwnerTurf(owner.id, turfs[0].id, {
+      ...turfInput,
+      name: turfs[0].name,
+      operatingHours: {
+        ...schedule,
+        dateRanges: [{ startDate: date, endDate: date, slots: [{ startTime: '11:00', endTime: '12:00' }] }],
+      },
+    });
+    const updatedAvailability = await database.listAvailability(turfs[0].id, date);
+    assert.deepEqual(updatedAvailability.map((slot) => [String(slot.start_time).slice(0, 5), slot.status]), [
+      ['10:00', 'booked'], ['11:00', 'available'],
+    ], 'changing a schedule preserves existing bookings while exposing the replacement availability');
+    await assert.rejects(database.createManualBooking({
+      ...bookingInput,
+      idempotencyKey: `manual-booking-stale-schedule:${suffix}`,
+    }), /saved availability schedule/i, 'manual bookings cannot use stale slots removed by a date-range override');
   });
 
   test(`${providerName} reserves, reviews, and settles owner withdrawals idempotently`, { timeout: 60_000 }, async () => {
@@ -380,12 +397,14 @@ if (!['mongodb', 'postgres'].includes(providerName)) {
 
     const date = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
     const day = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'][new Date(`${date}T12:00:00Z`).getUTCDay()];
-    const turf = await database.createTurf(owner.id, {
+    const schedule = { days: { [day]: { slots: [{ startTime: '10:00', endTime: '11:00' }] } } };
+    const turfInput = {
       name: 'Booking Integration Turf', address: 'Test address', area: 'Test area', city: 'Test city',
       latitude: 23.7, longitude: 90.4, sportTypes: ['football'], amenities: [], basePricePerHour: 1000,
-      operatingHours: { days: { [day]: { slots: [{ startTime: '10:00', endTime: '11:00' }] } } },
+      operatingHours: schedule,
       photos: [], pricingRules: [],
-    });
+    };
+    const turf = await database.createTurf(owner.id, turfInput);
     await database.setTurfReviewStatus(turf.id, 'active');
     const players = await Promise.all([1, 2].map((index) => database.createPlayerAccount({
       name: `Booking Integration Player ${index}`,
@@ -409,6 +428,20 @@ if (!['mongodb', 'postgres'].includes(providerName)) {
     assert.match(losers[0].reason.message, /availability|booked|slot/i);
 
     const booking = winners[0].value;
+    assert.deepEqual(await database.listBookingsForOwner(owner.id), [], 'pending-payment holds are not shown in owner bookings');
+    assert.deepEqual(await database.listBookingsForOwner(owner.id, { status: 'pending_payment' }), [], 'pending-payment holds stay hidden when explicitly filtered');
+    assert.equal(await database.getBookingForUser(booking.id, { id: owner.id, role: 'turf_owner' }), null, 'owners cannot load pending-payment booking details directly');
+    assert.equal((await database.getBookingForUser(booking.id, { id: players[0].id, role: 'player' }))?.status, 'pending_payment', 'players retain access to their own pending payment');
+    assert.equal((await database.ownerRevenueReport(owner.id, { from: date, to: date })).summary.booking_count, 0, 'pending-payment holds are excluded from owner booking reports');
+    const staff = await database.createStaffAccountAndAssignments({
+      ownerId: owner.id,
+      staff: { name: 'Pending Booking Staff', email: `pending-staff-${suffix}@example.invalid`, phone: '01234567890' },
+      turfIds: [turf.id],
+      permissions: ['bookings.view'],
+      passwordHash: 'test-only-not-a-login-hash',
+    });
+    assert.deepEqual(await database.listBookingsForStaff(staff.user.id), [], 'pending-payment holds are not shown in assigned staff bookings');
+    assert.equal(await database.getBookingForUser(booking.id, { id: staff.user.id, role: 'staff' }), null, 'staff cannot load pending-payment booking details directly');
     const payment = {
       transactionId: booking.booking_number,
       amount: Number(booking.total_payable),
@@ -418,6 +451,9 @@ if (!['mongodb', 'postgres'].includes(providerName)) {
     };
     await database.confirmBookingPayment(payment);
     await database.confirmBookingPayment(payment);
+    assert.equal((await database.listBookingsForOwner(owner.id)).some((item) => item.id === booking.id), true, 'paid bookings appear in owner bookings');
+    assert.equal((await database.listBookingsForStaff(staff.user.id)).some((item) => item.id === booking.id), true, 'paid bookings appear in assigned staff bookings');
+    assert.equal((await database.ownerRevenueReport(owner.id, { from: date, to: date })).summary.booking_count, 1, 'confirmed bookings count in owner reports');
     const wallet = await database.getOwnerWallet(owner.id);
     assert.equal(wallet.transactions.filter((item) => item.idempotency_key === `booking-credit:${booking.id}`).length, 1);
     assert.equal(wallet.transactions.filter((item) => item.idempotency_key === `booking-hold:${booking.id}`).length, 1);
@@ -445,6 +481,30 @@ if (!['mongodb', 'postgres'].includes(providerName)) {
     });
     assert.equal(rebooked.status, 'pending_payment', 'an expired hold must not retain the slot association');
     await database.releasePendingBookingHold({ bookingId: rebooked.id, playerId: players[0].id });
+
+    await database.updateOwnerTurf(owner.id, turf.id, {
+      ...turfInput,
+      operatingHours: {
+        ...schedule,
+        dateRanges: [{ startDate: date, endDate: date, slots: [{ startTime: '11:00', endTime: '12:00' }] }],
+      },
+    });
+    const dateRangeAvailability = await database.listAvailability(turf.id, date);
+    assert.deepEqual(dateRangeAvailability.map((slot) => String(slot.start_time).slice(0, 5)), ['11:00'], 'date-range schedules replace weekly availability only for covered dates');
+    const weeklyFallbackDate = new Date(`${date}T00:00:00Z`);
+    weeklyFallbackDate.setUTCDate(weeklyFallbackDate.getUTCDate() + 7);
+    const weeklyFallback = await database.listAvailability(turf.id, weeklyFallbackDate.toISOString().slice(0, 10));
+    assert.deepEqual(weeklyFallback.map((slot) => String(slot.start_time).slice(0, 5)), ['10:00'], 'weekly availability remains active outside configured date ranges');
+    await assert.rejects(database.createBookingHold({
+      playerId: players[0].id, turfId: turf.id, date, startTime: '10:00', durationHours: 1,
+      idempotencyKey: `booking-stale-schedule:${suffix}`,
+    }), /saved availability schedule/i, 'removed availability cannot be booked through a stale slot record');
+    const dateRangeBooking = await database.createBookingHold({
+      playerId: players[0].id, turfId: turf.id, date, startTime: '11:00', durationHours: 1,
+      idempotencyKey: `booking-date-range:${suffix}`,
+    });
+    assert.equal(dateRangeBooking.status, 'pending_payment');
+    await database.releasePendingBookingHold({ bookingId: dateRangeBooking.id, playerId: players[0].id });
   });
 
   test(`${providerName} encrypts SMTP passwords and preserves admin configuration`, {

@@ -114,6 +114,7 @@ export interface Turf {
     openTime: string;  // "07:00"
     closeTime: string; // "00:00"
     days?: Record<string, { openTime?: string; closeTime?: string; closed?: boolean; slots?: { startTime: string; endTime: string }[] }>;
+    dateRanges?: { startDate: string; endDate: string; slots: { startTime: string; endTime: string }[] }[];
   };
   photos: string[];
   addons?: TurfAddon[];

@@ -1189,6 +1189,12 @@ const priceForSlot = (basePrice, rules, date, startTime) => {
 
 const dailySlotTimes = (date, operatingHours = {}) => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(new Date(`${date}T00:00:00Z`).getTime())) throw new Error('A valid booking date is required.');
+  const dateRange = (Array.isArray(operatingHours?.dateRanges) ? operatingHours.dateRanges : [])
+    .find((range) => range.startDate <= date && date <= range.endDate);
+  if (dateRange) {
+    return dateRange.slots.map((slot) => ({ start_time: String(slot.startTime), end_time: String(slot.endTime) }))
+      .sort((a, b) => minutesOf(a.start_time) - minutesOf(b.start_time));
+  }
   const weekdays = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
   const weekday = weekdays[new Date(`${date}T12:00:00Z`).getUTCDay()];
   const hours = operatingHours?.days?.[weekday] || operatingHours?.[weekday] || {};
@@ -1198,6 +1204,18 @@ const dailySlotTimes = (date, operatingHours = {}) => {
       .sort((a, b) => minutesOf(a.start_time) - minutesOf(b.start_time));
   }
   return [];
+};
+
+const consecutiveConfiguredSlots = (date, operatingHours, startTime, duration) => {
+  const configured = dailySlotTimes(date, operatingHours);
+  const startIndex = configured.findIndex((slot) => slot.start_time.slice(0, 5) === startTime);
+  if (startIndex < 0) throw new Error("The selected time is not part of this turf's saved availability schedule.");
+  const requested = configured.slice(startIndex, startIndex + duration);
+  if (requested.length !== duration || requested.some((slot, index) =>
+    index > 0 && minutesOf(slot.start_time) !== minutesOf(requested[index - 1].end_time))) {
+    throw new Error('Not enough consecutive availability from the selected start time.');
+  }
+  return requested;
 };
 
 const insertDailySlotsPostgres = async (client, turfId, date, operatingHours) => {
@@ -1285,12 +1303,17 @@ export const createManualBooking = async (input) => {
         if (!assignment.rowCount || !Array.isArray(permissions) || !permissions.includes('bookings.create_manual')) throw new Error('Staff permission to create manual bookings is required.');
       }
       await insertDailySlotsPostgres(client, input.turfId, input.date, turf.operating_hours);
+      const expectedSlots = consecutiveConfiguredSlots(input.date, turf.operating_hours, input.startTime, duration);
       const slotsResult = await client.query(
-        `SELECT id,start_time,end_time,status FROM slots WHERE turf_id=$1 AND date=$2 AND start_time >= $3
-         ORDER BY start_time LIMIT $4 FOR UPDATE`, [input.turfId, input.date, input.startTime, duration]
+        `SELECT id,start_time,end_time,status FROM slots WHERE turf_id=$1 AND date=$2 AND start_time=ANY($3::time[])
+         ORDER BY start_time FOR UPDATE`, [input.turfId, input.date, expectedSlots.map((slot) => slot.start_time)]
       );
       const slots = slotsResult.rows;
-      if (slots.length !== duration || slots[0].start_time.slice(0, 5) !== input.startTime) throw new Error('Not enough consecutive availability from the selected start time.');
+      if (slots.length !== duration || slots.some((slot, index) =>
+        slot.start_time.slice(0, 5) !== expectedSlots[index].start_time.slice(0, 5) ||
+        slot.end_time.slice(0, 5) !== expectedSlots[index].end_time.slice(0, 5))) {
+        throw new Error("The selected time is not part of this turf's saved availability schedule.");
+      }
       await clearReleasedBookingSlotLinks({ client, slotIds: slots.map((slot) => slot.id) });
       for (let index = 0; index < slots.length; index += 1) if (slots[index].status !== 'available' || (index > 0 && minutesOf(slots[index].start_time) !== minutesOf(slots[index - 1].end_time))) throw new Error('Not enough consecutive availability from the selected start time.');
       const [rules, settings] = await Promise.all([
@@ -1342,8 +1365,13 @@ export const createManualBooking = async (input) => {
         if (!assignment || !Array.isArray(assignment.permissions) || !assignment.permissions.includes('bookings.create_manual')) throw new Error('Staff permission to create manual bookings is required.');
       }
       await insertDailySlotsMongo(input.turfId, input.date, turf.operating_hours, session);
-      const slots = await mongoDb.collection('slots').find({ turf_id: input.turfId, date: input.date, start_time: { $gte: input.startTime } }, { session }).sort({ start_time: 1 }).limit(duration).toArray();
-      if (slots.length !== duration || String(slots[0].start_time).slice(0, 5) !== input.startTime) throw new Error('Not enough consecutive availability from the selected start time.');
+      const expectedSlots = consecutiveConfiguredSlots(input.date, turf.operating_hours, input.startTime, duration);
+      const slots = await mongoDb.collection('slots').find({ turf_id: input.turfId, date: input.date, start_time: { $in: expectedSlots.map((slot) => slot.start_time) } }, { session }).sort({ start_time: 1 }).toArray();
+      if (slots.length !== duration || slots.some((slot, index) =>
+        String(slot.start_time).slice(0, 5) !== expectedSlots[index].start_time.slice(0, 5) ||
+        String(slot.end_time).slice(0, 5) !== expectedSlots[index].end_time.slice(0, 5))) {
+        throw new Error("The selected time is not part of this turf's saved availability schedule.");
+      }
       await clearReleasedBookingSlotLinks({ session, slotIds: slots.map((slot) => slot.id) });
       for (let index = 0; index < slots.length; index += 1) if (slots[index].status !== 'available' || (index > 0 && minutesOf(slots[index].start_time) !== minutesOf(slots[index - 1].end_time))) throw new Error('Not enough consecutive availability from the selected start time.');
       const settingsRows = await mongoDb.collection('platform_settings').find({ key: { $in: ['platform_fee_rate', 'platform_fee_enabled'] } }, { session }).toArray();
@@ -1544,6 +1572,7 @@ export const createBookingHold = async ({ playerId, turfId, date, startTime, dur
       const turf = turfResult.rows[0];
       if (!turf) throw new Error('Turf is unavailable for booking.');
       await insertDailySlotsPostgres(client, turfId, date, turf.operating_hours);
+      const expectedSlots = consecutiveConfiguredSlots(date, turf.operating_hours, startTime, duration);
       // A confirmed or checked-in booking is authoritative even if a slot row
       // was accidentally reset to available by an older code path.
       await client.query(
@@ -1554,11 +1583,15 @@ export const createBookingHold = async ({ playerId, turfId, date, startTime, dur
       );
       const slotsResult = await client.query(
         `SELECT id, start_time, end_time, status FROM slots
-         WHERE turf_id=$1 AND date=$2 AND start_time >= $3
-         ORDER BY start_time LIMIT $4 FOR UPDATE`, [turfId, date, startTime, duration]
+         WHERE turf_id=$1 AND date=$2 AND start_time=ANY($3::time[])
+         ORDER BY start_time FOR UPDATE`, [turfId, date, expectedSlots.map((slot) => slot.start_time)]
       );
       const slots = slotsResult.rows;
-      if (slots.length !== duration || slots[0].start_time.slice(0, 5) !== startTime) throw new Error('Not enough consecutive availability from the selected start time.');
+      if (slots.length !== duration || slots.some((slot, index) =>
+        slot.start_time.slice(0, 5) !== expectedSlots[index].start_time.slice(0, 5) ||
+        slot.end_time.slice(0, 5) !== expectedSlots[index].end_time.slice(0, 5))) {
+        throw new Error("The selected time is not part of this turf's saved availability schedule.");
+      }
       await clearReleasedBookingSlotLinks({ client, slotIds: slots.map((slot) => slot.id) });
       const activeConflict = await client.query(
         `SELECT 1 FROM bookings WHERE turf_id=$1 AND booking_date=$2
@@ -1620,6 +1653,7 @@ export const createBookingHold = async ({ playerId, turfId, date, startTime, dur
       const owner = turf && await mongoDb.collection('users').findOne({ id: turf.owner_id, status: 'active' }, { session });
       if (!turf || !profile || !owner) throw new Error('Turf is unavailable for booking.');
       await insertDailySlotsMongo(turfId, date, turf.operating_hours, session);
+      const expectedSlots = consecutiveConfiguredSlots(date, turf.operating_hours, startTime, duration);
       const now = new Date();
       // Repair availability from authoritative booking records before checking
       // a new request, so checked-in bookings can never be double-booked.
@@ -1633,8 +1667,12 @@ export const createBookingHold = async ({ playerId, turfId, date, startTime, dur
         const reservedSlotIds = linkedBookings.filter((item) => activeIds.has(item.booking_id)).map((item) => item.slot_id);
         if (reservedSlotIds.length) await mongoDb.collection('slots').updateMany({ id: { $in: reservedSlotIds }, status: 'available' }, { $set: { status: 'booked', locked_until: null, locked_by_user_id: null, updated_at: now.toISOString() } }, { session });
       }
-      const slots = await mongoDb.collection('slots').find({ turf_id: turfId, date, start_time: { $gte: startTime } }, { session }).sort({ start_time: 1 }).limit(duration).toArray();
-      if (slots.length !== duration || String(slots[0].start_time).slice(0, 5) !== startTime) throw new Error('Not enough consecutive availability from the selected start time.');
+      const slots = await mongoDb.collection('slots').find({ turf_id: turfId, date, start_time: { $in: expectedSlots.map((slot) => slot.start_time) } }, { session }).sort({ start_time: 1 }).toArray();
+      if (slots.length !== duration || slots.some((slot, index) =>
+        String(slot.start_time).slice(0, 5) !== expectedSlots[index].start_time.slice(0, 5) ||
+        String(slot.end_time).slice(0, 5) !== expectedSlots[index].end_time.slice(0, 5))) {
+        throw new Error("The selected time is not part of this turf's saved availability schedule.");
+      }
       await clearReleasedBookingSlotLinks({ session, slotIds: slots.map((slot) => slot.id) });
       const activeConflict = await mongoDb.collection('bookings').findOne({
         turf_id: turfId, booking_date: date, status: { $in: ['confirmed', 'checked_in', 'completed'] },
@@ -3629,6 +3667,7 @@ export const getBookingForUser = async (bookingId, user) => {
       values.push(JSON.stringify(['bookings.view']));
       scope = 'AND EXISTS (SELECT 1 FROM staff_assignments sa WHERE sa.staff_user_id=$2 AND sa.turf_id=b.turf_id AND sa.status=\'active\' AND sa.permissions @> $3::jsonb)';
     }
+    if (user.role === 'turf_owner' || user.role === 'staff') scope += " AND b.status <> 'pending_payment'";
     const result = await pool.query(
       `SELECT b.*, t.owner_id, t.name AS turf_name, p.gateway AS payment_gateway
        FROM bookings b JOIN turfs t ON t.id=b.turf_id LEFT JOIN payments p ON p.booking_id=b.id
@@ -3643,6 +3682,7 @@ export const getBookingForUser = async (bookingId, user) => {
     mongoDb.collection('payments').findOne({ booking_id: bookingId }, { projection: { gateway: 1 } }),
   ]);
   if (user.role === 'player' && booking.player_id !== user.id) return null;
+  if ((user.role === 'turf_owner' || user.role === 'staff') && booking.status === 'pending_payment') return null;
   if (user.role === 'turf_owner' && turf?.owner_id !== user.id) return null;
   if (user.role === 'staff' && !await mongoDb.collection('staff_assignments').findOne({ staff_user_id: user.id, turf_id: booking.turf_id, status: 'active', permissions: 'bookings.view' })) return null;
   return { ...booking, owner_id: turf?.owner_id, turf_name: turf?.name, payment_gateway: payment?.gateway };
@@ -3659,7 +3699,7 @@ export const listBookingsForStaff = async (staffId, { date = '', status = '' } =
        CASE WHEN EXISTS (SELECT 1 FROM staff_assignments sc WHERE sc.staff_user_id=$1 AND sc.turf_id=b.turf_id AND sc.status='active' AND sc.permissions @> '["bookings.view_player_contact"]'::jsonb) THEN mb.customer_name END AS customer_name,
        CASE WHEN EXISTS (SELECT 1 FROM staff_assignments sc WHERE sc.staff_user_id=$1 AND sc.turf_id=b.turf_id AND sc.status='active' AND sc.permissions @> '["bookings.view_player_contact"]'::jsonb) THEN mb.customer_phone END AS customer_phone FROM bookings b JOIN turfs t ON t.id=b.turf_id
        LEFT JOIN manual_bookings mb ON mb.booking_id=b.id
-       WHERE EXISTS (SELECT 1 FROM staff_assignments sa WHERE sa.staff_user_id=$1 AND sa.turf_id=b.turf_id AND sa.status='active' AND sa.permissions @> '["bookings.view"]'::jsonb)${filters}
+       WHERE b.status <> 'pending_payment' AND EXISTS (SELECT 1 FROM staff_assignments sa WHERE sa.staff_user_id=$1 AND sa.turf_id=b.turf_id AND sa.status='active' AND sa.permissions @> '["bookings.view"]'::jsonb)${filters}
        ORDER BY b.booking_date,b.start_time LIMIT 250`, values
     )).rows;
   }
@@ -3669,7 +3709,8 @@ export const listBookingsForStaff = async (staffId, { date = '', status = '' } =
     const permissions = Array.isArray(item.permissions) ? item.permissions : [item.permissions];
     return permissions.includes('bookings.view_player_contact');
   }).map((item) => item.turf_id));
-  const filter = { turf_id: { $in: turfIds } };
+  if (status === 'pending_payment') return [];
+  const filter = { turf_id: { $in: turfIds }, status: { $ne: 'pending_payment' } };
   if (date) filter.booking_date = date;
   if (status) filter.status = status;
   const bookings = await mongoDb.collection('bookings').find(filter).sort({ booking_date: 1, start_time: 1 }).limit(250).toArray();
@@ -3693,12 +3734,13 @@ export const listBookingsForOwner = async (ownerId, { date = '', status = '' } =
       `SELECT b.*,t.name AS turf_name,COALESCE(u.name,mb.customer_name) AS player_name,COALESCE(u.phone,mb.customer_phone) AS player_phone,payment.gateway AS payment_gateway
        FROM bookings b JOIN turfs t ON t.id=b.turf_id LEFT JOIN users u ON u.id=b.player_id LEFT JOIN manual_bookings mb ON mb.booking_id=b.id
        LEFT JOIN LATERAL (SELECT p.gateway FROM payments p WHERE p.booking_id=b.id ORDER BY (p.status='paid') DESC,p.created_at DESC LIMIT 1) payment ON TRUE
-       WHERE t.owner_id=$1${filters} ORDER BY (b.cancellation_request_status='pending') DESC,b.booking_date DESC,b.start_time DESC LIMIT 500`, values
+      WHERE t.owner_id=$1 AND b.status <> 'pending_payment'${filters} ORDER BY (b.cancellation_request_status='pending') DESC,b.booking_date DESC,b.start_time DESC LIMIT 500`, values
     )).rows;
   }
   const turfs = await mongoDb.collection('turfs').find({ owner_id: ownerId }, { projection: { id: 1, name: 1 } }).toArray();
   const turfMap = new Map(turfs.map((turf) => [turf.id, turf.name]));
-  const filter = { turf_id: { $in: [...turfMap.keys()] } };
+  if (status === 'pending_payment') return [];
+  const filter = { turf_id: { $in: [...turfMap.keys()] }, status: { $ne: 'pending_payment' } };
   if (date) filter.booking_date = date;
   if (status) filter.status = status;
   const pendingBookings = await mongoDb.collection('bookings').find({ ...filter, cancellation_request_status: 'pending' }).sort({ booking_date: -1, start_time: -1 }).toArray();

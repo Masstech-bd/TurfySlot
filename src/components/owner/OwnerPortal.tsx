@@ -31,8 +31,38 @@ import { formatBDDate, formatBDTime, formatBDTimeRange, getBDDateString, getBDNo
 import { apiFetch } from '../../utils/apiClient';
 
 type ConfiguredSlotTime = { startTime: string; endTime: string };
+type BulkTimeRange = ConfiguredSlotTime;
 
 const weekdayKeys = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+const timeToMinutes = (time: string) => {
+  const [hour, minute] = time.split(':').map(Number);
+  return hour * 60 + minute;
+};
+const makeSlotsFromRanges = (ranges: BulkTimeRange[]): ConfiguredSlotTime[] | null => {
+  const slots: ConfiguredSlotTime[] = [];
+  for (const range of ranges) {
+    if (!/^(?:[01]\d|2[0-3]):(?:00|30)$/.test(range.startTime) ||
+        !/^(?:[01]\d|2[0-3]):(?:00|30)$/.test(range.endTime) && range.endTime !== '24:00') return null;
+    const start = timeToMinutes(range.startTime);
+    const end = range.endTime === '24:00' ? 1440 : timeToMinutes(range.endTime);
+    if (end <= start || (end - start) % 60 !== 0) return null;
+    for (let minute = start; minute < end; minute += 60) {
+      const endMinute = minute + 60;
+      slots.push({
+        startTime: `${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`,
+        endTime: endMinute === 1440 ? '24:00' : `${String(Math.floor(endMinute / 60)).padStart(2, '0')}:${String(endMinute % 60).padStart(2, '0')}`,
+      });
+    }
+  }
+  slots.sort((a, b) => a.startTime.localeCompare(b.startTime));
+  if (slots.some((slot, index) => index > 0 && timeToMinutes(slot.startTime) < (slots[index - 1].endTime === '24:00' ? 1440 : timeToMinutes(slots[index - 1].endTime)))) return null;
+  return slots;
+};
+const shiftCalendarDate = (date: string, days: number) => {
+  const shifted = new Date(`${date}T00:00:00Z`);
+  shifted.setUTCDate(shifted.getUTCDate() + days);
+  return shifted.toISOString().slice(0, 10);
+};
 const paymentGatewayLabel = (paymentMethod: PaymentMethod) => ({
   sslcommerz: 'SSLCommerz',
   surjopay: 'ShurjoPay',
@@ -95,8 +125,8 @@ export const OwnerPortal: React.FC = () => {
   const isApproved = profile?.approvalStatus === 'active' && currentUser.status === 'active';
   const myTurfs = turfs.filter((t) => t.ownerId === currentUser.id);
   const myTurfIds = myTurfs.map((t) => t.id);
-  // Expired payment holds never became bookings and should not inflate the owner's booking totals.
-  const myBookings = bookings.filter((b) => myTurfIds.includes(b.turfId) && b.status !== 'expired');
+  // Unpaid holds are not owner-visible bookings and must not affect booking totals.
+  const myBookings = bookings.filter((b) => myTurfIds.includes(b.turfId) && !['expired', 'pending_payment'].includes(b.status));
   const myWallet = wallets[currentUser.id] || {
     ownerId: currentUser.id,
     availableBalance: 0,
@@ -354,6 +384,12 @@ export const OwnerPortal: React.FC = () => {
   const [scheduleDay, setScheduleDay] = useState(weekdayKeys[new Date(`${getBDDateString()}T12:00:00Z`).getUTCDay()]);
   const [scheduleSlots, setScheduleSlots] = useState<ConfiguredSlotTime[]>([]);
   const [scheduleMessage, setScheduleMessage] = useState('');
+  const [bulkScheduleMode, setBulkScheduleMode] = useState<'weekly' | 'date_range'>('weekly');
+  const [bulkWeekdays, setBulkWeekdays] = useState<string[]>(weekdayKeys);
+  const [bulkStartDate, setBulkStartDate] = useState(slotDate);
+  const [bulkEndDate, setBulkEndDate] = useState(slotDate);
+  const [bulkTimeRanges, setBulkTimeRanges] = useState<BulkTimeRange[]>([{ startTime: '07:00', endTime: '11:00' }]);
+  const [bulkScheduleMessage, setBulkScheduleMessage] = useState('');
   const [pricingMessage, setPricingMessage] = useState('');
   const [isScheduleExpanded, setIsScheduleExpanded] = useState(false);
   useEffect(() => {
@@ -479,14 +515,10 @@ export const OwnerPortal: React.FC = () => {
   const handleSaveWeeklySchedule = async () => {
     if (!selectedScheduleTurf) return;
     const sortedSlots = [...scheduleSlots].sort((a, b) => a.startTime.localeCompare(b.startTime));
-    const toMinutes = (time: string) => {
-      const [hour, minute] = time.split(':').map(Number);
-      return hour * 60 + minute;
-    };
     let previousEnd = -1;
     for (const slot of sortedSlots) {
-      const start = toMinutes(slot.startTime);
-      const end = toMinutes(slot.endTime);
+      const start = timeToMinutes(slot.startTime);
+      const end = slot.endTime === '24:00' ? 1440 : timeToMinutes(slot.endTime);
       if (!Number.isFinite(start) || !Number.isFinite(end) || start % 30 !== 0 || end % 30 !== 0 || end - start !== 60 || start < previousEnd || start >= 1440 || end > 1440) {
         setScheduleMessage('Each slot must be one hour, use 30-minute boundaries, and not overlap another slot.');
         return;
@@ -512,6 +544,72 @@ export const OwnerPortal: React.FC = () => {
     }
     setScheduleMessage(`${scheduleDay[0].toUpperCase()}${scheduleDay.slice(1)} availability saved.`);
     await loadAvailability(slotTurfId, slotDate);
+  };
+
+  const handleApplyBulkSchedule = async () => {
+    if (!selectedScheduleTurf) return;
+    const generatedSlots = makeSlotsFromRanges(bulkTimeRanges);
+    if (!generatedSlots?.length) {
+      setBulkScheduleMessage('Enter valid time ranges that generate one-hour slots without overlaps.');
+      return;
+    }
+    const operatingHours = selectedScheduleTurf.operatingHours;
+    if (bulkScheduleMode === 'weekly') {
+      if (!bulkWeekdays.length) {
+        setBulkScheduleMessage('Choose at least one weekday to replace.');
+        return;
+      }
+      const oldDays = operatingHours.days || {};
+      const openTime = generatedSlots[0].startTime;
+      const closeTime = generatedSlots.at(-1)?.endTime || '07:00';
+      const days = { ...oldDays };
+      for (const day of bulkWeekdays) days[day] = { openTime, closeTime, closed: false, slots: generatedSlots };
+      const updated = await updateTurf(selectedScheduleTurf.id, {
+        operatingHours: { ...operatingHours, days },
+      });
+      setBulkScheduleMessage(updated ? `Weekly schedule replaced for ${bulkWeekdays.length === 7 ? 'every day' : bulkWeekdays.join(', ')}.` : 'Could not save the bulk weekly schedule. Please try again.');
+      if (updated) {
+        setScheduleSlots(weekdaySlotSchedule(updated, scheduleDay));
+        await loadAvailability(slotTurfId, slotDate);
+      }
+      return;
+    }
+
+    const validDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value) &&
+      !Number.isNaN(new Date(`${value}T00:00:00Z`).getTime()) &&
+      new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value;
+    const today = getBDDateString();
+    const latestAllowedDate = shiftCalendarDate(today, 365);
+    if (!validDate(bulkStartDate) || !validDate(bulkEndDate) || bulkStartDate < today ||
+        bulkStartDate > bulkEndDate || bulkEndDate > latestAllowedDate) {
+      setBulkScheduleMessage(`Choose a valid future date range ending within ${latestAllowedDate}.`);
+      return;
+    }
+
+    const preservedRanges = (operatingHours.dateRanges || []).flatMap((range) => {
+      if (range.endDate < bulkStartDate || range.startDate > bulkEndDate) return [range];
+      const parts: NonNullable<Turf['operatingHours']['dateRanges']> = [];
+      if (range.startDate < bulkStartDate) parts.push({ ...range, endDate: shiftCalendarDate(bulkStartDate, -1) });
+      if (range.endDate > bulkEndDate) parts.push({ ...range, startDate: shiftCalendarDate(bulkEndDate, 1) });
+      return parts;
+    });
+    const dateRanges = [...preservedRanges, { startDate: bulkStartDate, endDate: bulkEndDate, slots: generatedSlots }]
+      .sort((a, b) => a.startDate.localeCompare(b.startDate));
+    const updated = await updateTurf(selectedScheduleTurf.id, {
+      operatingHours: { ...operatingHours, dateRanges },
+    });
+    setBulkScheduleMessage(updated ? `Daily schedule replaced from ${bulkStartDate} through ${bulkEndDate}.` : 'Could not save the date-range schedule. Please try again.');
+    if (updated) await loadAvailability(slotTurfId, slotDate);
+  };
+
+  const removeDateRangeSchedule = async (startDate: string, endDate: string) => {
+    if (!selectedScheduleTurf) return;
+    const dateRanges = (selectedScheduleTurf.operatingHours.dateRanges || []).filter((range) => range.startDate !== startDate || range.endDate !== endDate);
+    const updated = await updateTurf(selectedScheduleTurf.id, {
+      operatingHours: { ...selectedScheduleTurf.operatingHours, dateRanges },
+    });
+    setBulkScheduleMessage(updated ? `Date-range schedule ${startDate} to ${endDate} removed; weekly availability now applies.` : 'Could not remove the date-range schedule.');
+    if (updated) await loadAvailability(slotTurfId, slotDate);
   };
 
   const handleSavePricingRules = async () => {
@@ -1491,6 +1589,89 @@ export const OwnerPortal: React.FC = () => {
                   <button type="button" onClick={() => void handleSaveWeeklySchedule()} disabled={!selectedScheduleTurf} className="rounded-xl bg-[#C8FF5E] px-4 py-2.5 text-xs font-bold text-[#0A1E14] hover:bg-[#A8E63E] disabled:cursor-not-allowed disabled:opacity-40 sm:ml-auto">Save {scheduleDay} schedule</button>
                 </div>
               </div>}
+            </section>
+
+            <section className="space-y-4 rounded-2xl border border-white/10 bg-[#0A1E14] p-4 sm:p-5">
+              <div>
+                <h3 className="text-sm font-bold text-white">Bulk schedule</h3>
+                <p className="mt-1 max-w-2xl text-xs leading-relaxed text-white/55">Generate one-hour slots from multiple time ranges and replace several weekdays at once, or set a daily schedule for a date range. Booked and blocked slots are preserved.</p>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="space-y-1.5">
+                  <span className="block text-[11px] font-semibold text-white/65">Apply schedule to</span>
+                  <select value={bulkScheduleMode} onChange={(event) => { setBulkScheduleMode(event.target.value as 'weekly' | 'date_range'); setBulkScheduleMessage(''); }} className="w-full rounded-xl border border-white/10 bg-[#07130c] px-3 py-2.5 text-xs text-white">
+                    <option value="weekly">Selected weekdays, repeating every week</option>
+                    <option value="date_range">Every day in a date range</option>
+                  </select>
+                </label>
+                {bulkScheduleMode === 'date_range' && (
+                  <>
+                    <label className="space-y-1.5">
+                      <span className="block text-[11px] font-semibold text-white/65">Start date</span>
+                      <input type="date" min={getBDDateString()} max={shiftCalendarDate(getBDDateString(), 365)} value={bulkStartDate} onChange={(event) => setBulkStartDate(event.target.value)} className="w-full rounded-xl border border-white/10 bg-[#07130c] px-3 py-2.5 text-xs text-white" />
+                    </label>
+                    <label className="space-y-1.5">
+                      <span className="block text-[11px] font-semibold text-white/65">End date (inclusive)</span>
+                      <input type="date" min={bulkStartDate || getBDDateString()} max={shiftCalendarDate(getBDDateString(), 365)} value={bulkEndDate} onChange={(event) => setBulkEndDate(event.target.value)} className="w-full rounded-xl border border-white/10 bg-[#07130c] px-3 py-2.5 text-xs text-white" />
+                    </label>
+                  </>
+                )}
+              </div>
+
+              {bulkScheduleMode === 'weekly' && (
+                <div>
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <span className="text-[11px] font-semibold text-white/65">Replace weekdays</span>
+                    <button type="button" onClick={() => setBulkWeekdays(bulkWeekdays.length === weekdayKeys.length ? [] : [...weekdayKeys])} className="text-[10px] font-bold text-[#C8FF5E] hover:text-white">
+                      {bulkWeekdays.length === weekdayKeys.length ? 'Clear selection' : 'Select every day'}
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-4 gap-2 sm:grid-cols-7">
+                    {weekdayKeys.map((day) => {
+                      const selected = bulkWeekdays.includes(day);
+                      return <button key={day} type="button" aria-pressed={selected} onClick={() => setBulkWeekdays((previous) => selected ? previous.filter((item) => item !== day) : [...previous, day])} className={`rounded-lg border px-2 py-2 text-[10px] font-semibold capitalize ${selected ? 'border-[#C8FF5E]/50 bg-[#C8FF5E]/10 text-[#C8FF5E]' : 'border-white/10 bg-[#07130c] text-white/55'}`}>{day.slice(0, 3)}</button>;
+                    })}
+                  </div>
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-semibold text-white/65">Daily time ranges</span>
+                  <button type="button" onClick={() => setBulkTimeRanges((previous) => [...previous, { startTime: '17:00', endTime: '21:00' }])} className="inline-flex items-center gap-1 rounded-lg border border-[#C8FF5E]/30 px-2.5 py-1.5 text-[10px] font-bold text-[#C8FF5E] hover:bg-[#C8FF5E]/10">
+                    <Plus className="h-3 w-3" /> Add range
+                  </button>
+                </div>
+                {bulkTimeRanges.map((range, index) => (
+                  <div key={index} className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto] items-center gap-2 rounded-xl border border-white/10 bg-[#07130c] p-2.5">
+                    <select aria-label={`Bulk range ${index + 1} start time`} value={range.startTime} onChange={(event) => setBulkTimeRanges((previous) => previous.map((item, itemIndex) => itemIndex === index ? { ...item, startTime: event.target.value } : item))} className="min-w-0 rounded-lg border border-white/10 bg-[#0A1E14] px-2 py-2 text-xs text-white">
+                      {slotTimeOptions.slice(0, -1).map((time) => <option key={time} value={time}>{formatBDTime(time)}</option>)}
+                    </select>
+                    <span className="text-[10px] text-white/40">to</span>
+                    <select aria-label={`Bulk range ${index + 1} end time`} value={range.endTime} onChange={(event) => setBulkTimeRanges((previous) => previous.map((item, itemIndex) => itemIndex === index ? { ...item, endTime: event.target.value } : item))} className="min-w-0 rounded-lg border border-white/10 bg-[#0A1E14] px-2 py-2 text-xs text-white">
+                      {slotTimeOptions.map((time) => <option key={time} value={time}>{formatBDTime(time)}</option>)}
+                    </select>
+                    <button type="button" aria-label={`Remove bulk range ${index + 1}`} disabled={bulkTimeRanges.length === 1} onClick={() => setBulkTimeRanges((previous) => previous.filter((_, itemIndex) => itemIndex !== index))} className="rounded-lg p-2 text-white/50 hover:bg-rose-500/10 hover:text-rose-300 disabled:opacity-30"><Trash2 className="h-4 w-4" /></button>
+                  </div>
+                ))}
+                <p className="text-[10px] text-white/45">Each range generates consecutive one-hour slots. Use separate ranges for breaks; ranges must not overlap.</p>
+              </div>
+
+              {selectedScheduleTurf?.operatingHours.dateRanges?.length ? (
+                <div className="space-y-2 border-t border-white/10 pt-3">
+                  <span className="text-[11px] font-semibold text-white/65">Saved date-range schedules</span>
+                  {selectedScheduleTurf.operatingHours.dateRanges.map((range) => (
+                    <div key={`${range.startDate}-${range.endDate}`} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-white/10 bg-[#07130c] px-3 py-2">
+                      <span className="text-[10px] text-white/75">{range.startDate} – {range.endDate} · {range.slots.length} daily slots</span>
+                      <button type="button" onClick={() => void removeDateRangeSchedule(range.startDate, range.endDate)} className="text-[10px] font-bold text-rose-300 hover:text-rose-200">Remove</button>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              <div className="flex flex-col gap-2 border-t border-white/10 pt-3 sm:flex-row sm:items-center sm:justify-between">
+                {bulkScheduleMessage && <p role="status" className={`text-xs ${bulkScheduleMessage.includes('replaced') ? 'text-[#C8FF5E]' : 'text-rose-300'}`}>{bulkScheduleMessage}</p>}
+                <button type="button" disabled={!selectedScheduleTurf} onClick={() => void handleApplyBulkSchedule()} className="rounded-xl bg-[#C8FF5E] px-4 py-2.5 text-xs font-bold text-[#0A1E14] hover:bg-[#A8E63E] disabled:cursor-not-allowed disabled:opacity-40 sm:ml-auto">Replace {bulkScheduleMode === 'weekly' ? 'selected weekdays' : 'date range'}</button>
+              </div>
             </section>
 
             <section className="space-y-4 rounded-2xl border border-white/10 bg-[#0A1E14] p-4 sm:p-5">

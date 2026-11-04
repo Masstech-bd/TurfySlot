@@ -127,6 +127,7 @@ old one is not progress.
 - Section 75. Tournament Team Rosters and Player Invitations
 - Section 76. Cancellation Refund Tiers Measured from Booking Creation
 - Section 77. Admin-Configurable Booking Payment Hold Duration
+- Section 78. Bulk Weekly and Date-Range Slot Schedules
 - Section 63. Automatic Booking Completion and Owner Override
 - Section 62. Explicit Weekly Availability Required for Public Turf Listings
 
@@ -442,7 +443,9 @@ The platform has **four roles**, stored on the `users` table via a
     bookings within the cancellation window (see Section 10).
 7.  **Booking management** --- view upcoming/past bookings for their
     turf(s), see player contact info for confirmed bookings, cannot see
-    other turf owners' data.
+    other turf owners' data. Online bookings in `pending_payment` are
+    excluded from owner lists, details, and booking counts until payment
+    is confirmed.
 8.  **Cancel a booking (owner-initiated)** --- e.g. turf becomes
     unavailable due to an emergency. Must trigger a full refund to the
     player and flag the incident for admin visibility (repeated
@@ -500,7 +503,9 @@ resolves refunds on a manual booking.
 Staff accounts exist so a turf owner can delegate day-to-day operations
 without exposing financial data or account settings.
 
--   View bookings for their assigned turf(s) only.
+-   View bookings for their assigned turf(s) only; online bookings in
+    `pending_payment` are excluded from staff lists and details until
+    payment is confirmed.
 -   Check in players on arrival (mark booking as `checked_in` /
     `completed`).
 -   Block/unblock specific slots (e.g. turf temporarily unusable), if
@@ -1399,7 +1404,9 @@ admin.
 
 19.5 Booking Operations Owner can:
 
-View all bookings for own turfs.
+View all confirmed or later-state bookings for own turfs. Online bookings
+in `pending_payment` are excluded from owner lists, details, and booking
+counts until payment is confirmed.
 
 Search by booking ID/player/phone.
 
@@ -5485,3 +5492,37 @@ The application must support PostgreSQL and MongoDB Atlas as alternative databas
 - [ ] Existing pending holds keep their original expiry after an admin changes the setting.
 - [ ] An unpaid pending booking continues to reserve every linked slot until it is expired or explicitly released; expiry releases all linked slots together.
 - [ ] With no saved setting, new booking holds continue to use the existing 10-minute default.
+
+
+## 78. Bulk Weekly and Date-Range Slot Schedules
+
+### 78.1 Scope
+
+- The owner Slot Availability and Weekly Schedule panel supports bulk schedule entry in addition to the existing single-weekday editor.
+- Owners can enter one or more daily time ranges, choose multiple weekdays or all seven weekdays for a recurring weekly schedule, and generate the existing one-hour slots from each range.
+- Owners can also apply the same generated slots to every calendar date in an inclusive start/end date range. These date-range schedules override the weekly schedule on dates they cover; dates outside them continue to use the recurring weekly schedule.
+- Bulk updates replace the schedule for the selected weekdays or date range. Replacing an overlapping date range splits and preserves unaffected portions of existing ranges; overlapping date-range definitions are not allowed.
+- The time ranges must generate exact one-hour slots using existing 30-minute schedule boundaries. Generated slots cannot overlap within a day and cannot cross midnight; owners can use separate ranges on either side of midnight.
+- Existing hourly and special-date pricing rules continue to determine each slot's price. This section does not add pricing fields or change pricing precedence.
+- Existing bookings, pending payment holds, and blocked slots remain intact when schedules change. Removed available schedule times must no longer appear as bookable or be accepted by online or manual booking endpoints.
+- A turf still requires at least one explicitly saved weekly slot to be publicly listed (Section 62). A date-range-only schedule does not satisfy this rule.
+- Schedule data is stored with the turf's existing operating-hours document and persists identically through PostgreSQL and MongoDB; no new endpoint or database table is introduced.
+
+### 78.2 Rules
+
+- Weekly bulk apply requires at least one selected weekday; selecting all weekdays applies the same generated slots to every day of the week.
+- Date-range apply requires valid inclusive dates with start date not after end date. Date ranges may not extend beyond 365 days from the current Bangladesh date.
+- Each input range must have valid half-hour boundaries and a positive duration divisible into exact one-hour slots. The complete generated schedule must contain no overlaps.
+- The server validates generated schedules and ownership; frontend validation is only for usability.
+- Replacing a schedule affects future availability generation. Existing booked, locked, blocked, and historical slot records are not deleted or rewritten.
+
+### 78.3 Definition of Done
+
+- [ ] An owner can generate one-hour slots from multiple time ranges and replace the schedule for selected weekdays, including all seven days.
+- [ ] An owner can apply generated slots to every day within an inclusive date range; those dates use the date-range schedule instead of weekly availability.
+- [ ] Replacing overlapping date ranges preserves non-overlapping days of prior ranges and does not create overlapping definitions.
+- [ ] The existing per-weekday editor continues to work and updates the same recurring schedule data.
+- [ ] Replaced/removed available times cannot be booked through player or manual booking flows, including stale slot records; existing bookings and holds remain intact.
+- [ ] Public availability, booking prices, manual bookings, and online bookings use the same effective date schedule and existing pricing rules.
+- [ ] Date-range-only schedules do not make a turf publicly listed without at least one saved weekly slot.
+- [ ] PostgreSQL and MongoDB generate and persist equivalent schedules; invalid ranges are rejected server-side.
