@@ -4,8 +4,6 @@ import { UserRole } from '../../types';
 import { formatBDDateTime } from '../../utils/datetime';
 import { apiFetch } from '../../utils/apiClient';
 import {
-  Menu,
-  X,
   Camera,
   ChevronDown,
   LogOut,
@@ -264,26 +262,28 @@ export const Navbar: React.FC = () => {
         )}
 
         {/* Right: Auth Controls & Profile */}
-        <div className="flex items-center gap-3 shrink-0">
+        <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
           {!isAuthenticated ? (
             <>
               {/* LOGIN / SIGN IN BUTTON */}
               <button
                 id="nav-login-btn"
+                aria-label="Login"
                 onClick={() => openSignInModal()}
-                className="px-5 py-2 rounded-full border border-white/20 hover:border-[#C8FF5E] hover:bg-white/10 text-white font-semibold text-xs sm:text-sm transition-all duration-300 flex items-center gap-1.5 cursor-pointer"
+                className="hidden min-[400px]:flex px-2.5 sm:px-5 py-2 rounded-full border border-white/20 hover:border-[#C8FF5E] hover:bg-white/10 text-white font-semibold text-[11px] sm:text-sm transition-all duration-300 items-center gap-1 sm:gap-1.5 cursor-pointer"
               >
                 <LogIn className="w-3.5 h-3.5 text-[#C8FF5E]" />
-                <span>Login</span>
+                <span className="hidden min-[400px]:inline">Login</span>
               </button>
 
               {/* GET STARTED BUTTON */}
               <button
                 id="nav-getstarted-btn"
                 onClick={() => openGetStartedModal()}
-                className="px-5 py-2 rounded-full bg-[#C8FF5E] hover:bg-[#A8E63E] text-[#0A1E14] font-bold text-xs sm:text-sm transition-all duration-300 shadow-[0_4px_20px_rgba(200,255,94,0.25)] hover:-translate-y-0.5 flex items-center gap-1.5 cursor-pointer"
+                className="hidden min-[400px]:flex px-2.5 sm:px-5 py-2 rounded-full bg-[#C8FF5E] hover:bg-[#A8E63E] text-[#0A1E14] font-bold text-[11px] sm:text-sm transition-all duration-300 shadow-[0_4px_20px_rgba(200,255,94,0.25)] hover:-translate-y-0.5 items-center gap-1.5 cursor-pointer"
               >
-                <span>Get Started</span>
+                <span className="sm:hidden">Sign Up</span>
+                <span className="hidden sm:inline">Get Started</span>
               </button>
             </>
           ) : (
@@ -580,17 +580,35 @@ export const Navbar: React.FC = () => {
           {/* Mobile Menu Toggle Button */}
           <button
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="md:hidden p-2 text-white hover:text-[#C8FF5E] transition-colors cursor-pointer"
+            className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full p-2 text-white transition-colors hover:text-[#C8FF5E] cursor-pointer"
             aria-label="Toggle Navigation Menu"
+            aria-expanded={mobileMenuOpen}
+            aria-controls="mobile-navigation-menu"
           >
-            {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+            <span className="relative flex h-5 w-6 flex-col justify-center" aria-hidden="true">
+              <span
+                className={`absolute h-0.5 w-6 rounded-full bg-current transition-[rotate,top] duration-300 ease-in-out motion-reduce:transition-none ${
+                  mobileMenuOpen ? 'top-1/2 rotate-45' : 'top-0 rotate-0'
+                }`}
+              />
+              <span
+                className={`absolute top-1/2 h-0.5 w-6 -translate-y-1/2 rounded-full bg-current transition-[opacity,scale] duration-200 ease-in-out motion-reduce:transition-none ${
+                  mobileMenuOpen ? 'scale-x-0 opacity-0' : 'scale-x-100 opacity-100'
+                }`}
+              />
+              <span
+                className={`absolute h-0.5 w-6 rounded-full bg-current transition-[rotate,top] duration-300 ease-in-out motion-reduce:transition-none ${
+                  mobileMenuOpen ? 'top-1/2 -rotate-45' : 'top-full -rotate-0'
+                }`}
+              />
+            </span>
           </button>
         </div>
       </div>
 
       {/* Mobile Drawer (Accessible on all mobile screen sizes) */}
       {mobileMenuOpen && (
-        <div className="md:hidden bg-[#0A1E14] border-b border-white/10 px-5 py-4 space-y-4 animate-fadeIn max-h-[85vh] overflow-y-auto no-scrollbar">
+        <div id="mobile-navigation-menu" className="md:hidden bg-[#0A1E14] border-b border-white/10 px-5 py-4 space-y-4 animate-fadeIn max-h-[85vh] overflow-y-auto no-scrollbar">
           {isAuthenticated && currentUser.role === 'player' && (
             <nav aria-label="Public site navigation" className="flex flex-col space-y-2 pb-3 border-b border-white/10">
               {[

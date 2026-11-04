@@ -44,8 +44,10 @@ services:
       ADMIN_EMAIL: ${ADMIN_EMAIL:-}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       PRIVATE_UPLOADS_DIR: /app/uploads/private/business-verification
+      PUBLIC_UPLOADS_DIR: /app/uploads/public
     volumes:
       - uploads_data:/app/uploads/private
+      - uploads_public_data:/app/uploads/public
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:5000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 30s
@@ -71,7 +73,8 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command: ["echo '0 2 * * * /bin/sh /backup-uploads.sh >> /var/log/uploads-backup.log 2>&1' > /etc/crontabs/root && crond -f -l 2"]
     volumes:
-      - uploads_data:/source:ro
+      - uploads_data:/source/private:ro
+      - uploads_public_data:/source/public:ro
       - uploads_backup:/backup
       - ./deploy/backup-uploads.sh:/backup-uploads.sh:ro
     restart: unless-stopped
@@ -79,4 +82,5 @@ services:
 volumes:
   redis_data:
   uploads_data:
+  uploads_public_data:
   uploads_backup:
