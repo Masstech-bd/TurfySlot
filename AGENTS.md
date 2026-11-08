@@ -133,6 +133,8 @@ old one is not progress.
 - Section 81. Admin-Configured Automatic Check-In and Completion
 - Section 82. Admin Role-Based JSON Data Backups
 - Section 83. Admin-Managed Support Contacts and FAQs
+- Section 84. One-Time Restore of Role-Based JSON Backups
+- Section 85. Local Admin Password Reset
 - Section 63. Automatic Booking Completion and Owner Override
 - Section 62. Explicit Weekly Availability Required for Public Turf Listings
 
@@ -4820,7 +4822,7 @@ The application must support PostgreSQL and MongoDB as alternative database prov
 
 ### 54.2 Configuration and Secrets
 
-- PostgreSQL uses `DATABASE_URL`; MongoDB uses `MONGODB_URI`.
+- PostgreSQL uses `DATABASE_URL`; MongoDB uses `MONGODB_CONN`. `MONGODB_URI` remains a backward-compatible fallback, and `MONGODB_CONN` takes precedence when both are set.
 - Connection strings and credentials must only come from environment variables or deployment secrets. They must never be hard-coded, returned to the client, or written to logs.
 - Startup must fail with a clear, non-sensitive configuration error if the selected provider's connection string is missing or invalid. Do not silently fall back to an in-memory or other database provider.
 - `.env.example` may contain placeholder values only. Real credentials belong in a locally ignored `.env` file for development or in the deployment platform's secrets store.
@@ -5608,7 +5610,7 @@ The application must support PostgreSQL and MongoDB as alternative database prov
 
 ### 82.1 Scope
 
-- The authenticated Admin panel provides three separate JSON download actions: Player Accounts, Turf Owner Accounts, and Admin Accounts. These are export-only backups; importing or restoring a backup is not included.
+- The authenticated Admin panel provides three separate JSON download actions: Player Accounts, Turf Owner Accounts, and Admin Accounts. These are export-only backups; importing or restoring them is supported only through the guarded one-time procedure in Section 84.
 - Each export includes the selected role's account/profile data and related application records. Player exports include that player's bookings and related booking records, reviews, favorites, and notifications. Owner exports include the owner's profile, turfs, staff assignments, bookings for those turfs, manual-booking records, payments, refunds, wallet/ledger records, withdrawals, and related operational records. Admin exports include admin account identity/status fields and audit-log entries attributed to admins.
 - The Admin Accounts export includes account identity/status (including email and role) for login-account reference, but never includes password hashes, plaintext passwords, access/refresh tokens, authentication codes, or session secrets.
 - No export includes gateway/SMTP credentials or ciphertext, encryption keys, private business verification documents, or unrelated platform settings. Secrets and sensitive fields are excluded server-side, not merely hidden in the UI.
@@ -5652,3 +5654,63 @@ The application must support PostgreSQL and MongoDB as alternative database prov
 - [ ] FAQ content is rendered as text and cannot inject executable markup.
 - [ ] Unauthenticated and non-admin callers cannot update support settings; the public read endpoint exposes only the intended contact and FAQ data.
 - [ ] Changes persist and behave consistently in PostgreSQL and MongoDB, and admin updates are audit logged.
+
+
+## 84. One-Time Restore of Role-Based JSON Backups
+
+### 84.1 Scope
+
+- The three JSON files produced by Section 82 may be restored together to a MongoDB deployment using a one-time command-line importer. This does not add an API endpoint or an Admin-panel import action.
+- The importer requires one `players`, one `owners`, and one `admins` backup, each in the supported format version and exported from MongoDB. It validates the files and their record shapes before connecting to or writing to the destination.
+- The destination must be explicitly named and contain no application account or marketplace data. Existing schema/migration metadata and known application bootstrap records may remain; the importer must not delete or overwrite them. If any other destination application data exists, the import stops without writing.
+- The importer combines related rows from all three files, deduplicates identical records by record ID, and stops on conflicting records or invalid/missing required references. It preserves record IDs and inserts records in dependency order.
+- A dry run reports the target database name and per-collection record counts without writing data. A real import requires a separate explicit confirmation after the operator has checked the target and dry-run results.
+- Usage requires explicit paths for all three files and the exact `MONGODB_DATABASE` value: run `npm run db:import-role-backups -- --players "<players.json>" --owners "<owners.json>" --admins "<admins.json>" --expected-database "<database-name>" --dry-run`, then repeat with `--confirm` only after reviewing the dry run.
+- All writes happen in one MongoDB transaction. The target must support transactions (replica set or sharded cluster); standalone MongoDB targets fail closed.
+- The importer never drops databases or collections, deletes destination data, or modifies files in the backup directory. It does not import environment configuration, gateway/SMTP secrets, encryption keys, private verification documents, or upload files excluded by Section 82.
+
+### 84.2 Account and Backup Limitations
+
+- Section 82 deliberately excludes password hashes. During restore, imported player, owner, and staff accounts have no configured password and must use the existing account-recovery/setup process before logging in.
+- The importer securely prompts for a new password for each imported admin account and stores only its bcrypt hash using the platform's configured minimum cost. The password is not echoed, written to logs, or saved in the backup.
+- Every imported account receives a fresh token version so access and refresh tokens issued by the source deployment cannot authenticate against the restored records.
+- Private owner payout details and verification documents, as well as uploaded images, are not present in the exports and are not reconstructed. They must be configured or uploaded again where needed.
+- Records that depend on data excluded from the exports must be detected and reported as a validation error; the importer must not silently fabricate missing records or claim a complete restore.
+
+### 84.3 Definition of Done
+
+- [ ] A dry run validates all three files, reports deduplicated record counts, and does not change the destination.
+- [ ] The importer refuses missing, wrong-category, unsupported-version, non-MongoDB, malformed, sensitive-field-containing, or conflicting backup data before writing.
+- [ ] The importer refuses a non-empty application destination and never deletes or overwrites destination records.
+- [ ] A confirmed import to a transaction-capable MongoDB inserts the validated records atomically and verifies inserted counts before reporting success.
+- [ ] A transaction failure leaves the destination unchanged; a standalone MongoDB target is rejected before any import write.
+- [ ] Imported admin accounts receive newly selected passwords as bcrypt hashes; other imported accounts have no password hash and cannot authenticate with an old password.
+- [ ] The importer explains excluded password, private owner-document/payout, and upload data without printing backup contents or database credentials.
+- [ ] The importer has automated tests for backup validation, duplicate handling, destination guards, dry-run behavior, and transactional writes.
+
+
+## 85. Local First Admin Setup and Password Reset
+
+### 85.1 Scope
+
+- An operator can reset the password of an existing admin account using a local command-line utility when the application API is unavailable.
+- If the selected database has no admin accounts, the operator can create the first admin account using the same local setup utility. This is the direct database-seed path already allowed by Section 5.1; it is not public registration.
+- The utility connects directly to the configured MongoDB database and requires the operator to provide the expected database name. It locates the account by email and confirms the record has the `admin` role before updating it.
+- First-admin setup accepts the account name and email, confirms no admin account already exists, and rejects an email already used by any other account. It creates only an active admin user; it does not import the JSON backup or alter existing application records/settings.
+- The operator enters the new password twice through hidden terminal input. The utility stores only a bcrypt hash using cost factor 12 or higher. Newly created admins start with `token_version = 0`; resetting an existing admin increments `token_version` to invalidate existing access and refresh tokens.
+- Password reset changes no email, name, role, status, payment/SMTP configuration, or other application data. Neither operation imports a JSON backup or deletes records.
+- The MongoDB URI and password are never printed or accepted as command-line arguments. The command can operate against a standalone MongoDB server because it performs one atomic user-document update and does not start the application server.
+- First-admin usage: `npm run db:create-first-admin -- --expected-database "<exact MONGODB_DATABASE>"`. The operator must type `CREATE FIRST ADMIN` before entering the new password.
+- Password-reset usage: `npm run db:reset-admin-password -- --expected-database "<exact MONGODB_DATABASE>"`. The operator must confirm the displayed admin email by typing `RESET ADMIN PASSWORD` before entering the new password.
+
+### 85.2 Definition of Done
+
+- [ ] An operator can create a first admin account only when the target database contains no admin accounts.
+- [ ] First-admin creation enforces unique email, validates name/email/password, hashes the password, and leaves all existing records/settings unchanged.
+- [ ] An operator can reset the password only for an existing account whose role is `admin`.
+- [ ] The expected database name must match `MONGODB_DATABASE` before connection or update.
+- [ ] Password input is hidden, confirmed twice, length-validated, and never written to logs or source files.
+- [ ] The password is stored as a bcrypt hash and `token_version` increments; role and status remain unchanged.
+- [ ] Missing accounts, non-admin accounts, wrong database names, and database errors fail explicitly without reporting success.
+- [ ] Automated tests verify admin scoping, password hashing, token-version increment, and no role/status changes.
+- [ ] Automated tests verify first-admin creation, existing-admin refusal, email collision rejection, and no unrelated database writes.

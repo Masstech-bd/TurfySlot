@@ -18,7 +18,7 @@ if (!['mongodb', 'postgres'].includes(providerName)) {
   process.env.DB_PROVIDER = providerName;
   process.env.PAYOUT_ENCRYPTION_KEY ||= Buffer.alloc(32, 1).toString('base64');
   if (providerName === 'mongodb') {
-    process.env.MONGODB_URI = process.env.MONGODB_TEST_URI;
+    process.env.MONGODB_CONN = process.env.MONGODB_TEST_URI;
     process.env.MONGODB_DATABASE = testDatabase;
   } else {
     process.env.DATABASE_URL = testDatabaseUrl;

@@ -1,13 +1,14 @@
 TURFYSLOT: COOLIFY PRODUCTION DEPLOYMENT GUIDE (MONGODB)
 
-This guide deploys the MongoDB-backed application using compose.yaml and MongoDB Atlas. The application uses one database provider per deployment and does not synchronize PostgreSQL and MongoDB. Before switching an existing live deployment, confirm which database has the authoritative records and restore or migrate that data into Atlas; changing DB_PROVIDER alone does not copy records.
+This guide deploys the MongoDB-backed application using compose.yaml and either MongoDB Atlas or a self-hosted MongoDB replica set in Coolify. The Compose file does not create the MongoDB service; create/manage it as a separate private Coolify resource and attach the application to its network. The application uses one database per deployment and does not synchronize Atlas and Coolify MongoDB or PostgreSQL. Changing MONGODB_CONN alone does not copy records.
 
-IMPORTANT PRE-DEPLOYMENT BLOCKERS
+IMPORTANT PRE-DEPLOYMENT CHECKS
 
-1. Make both public and private uploads durable. compose.yaml currently mounts private verification uploads but not /app/uploads/public. Add a persistent volume for /app/uploads/public and include appropriate uploads in backups before accepting real photo uploads.
-2. deploy/nginx.conf currently proxies /api/ to the API but does not proxy /uploads/. The API serves public images at /uploads. Update and verify Nginx routing so browser requests reach the API, while private verification documents remain inaccessible publicly.
-3. Copy application and upload backups off the VPS and test a restore. VPS volumes alone are not disaster recovery.
-4. Ensure the selected Atlas database contains the records to preserve. MongoDB is not synchronized automatically with PostgreSQL.
+1. Both Compose files mount public images and private verification documents on separate persistent volumes. The uploads-backup service snapshots both directories; configure off-server backup copies and test a restore before accepting real photo uploads.
+2. Nginx proxies /uploads/ to the API's public static-image route. Keep private verification documents outside the public uploads directory; they are served only through the authenticated admin API.
+3. Before redeploying a deployment that already accepted image uploads, copy any files from the API container's old /app/uploads/public directory into the new uploads_public_data volume. Earlier versions did not persist this directory, so replacing the API container before copying it may permanently lose those files.
+4. Copy application and upload backups off the VPS and test a restore. VPS volumes alone are not disaster recovery.
+5. Ensure the selected MongoDB database contains the records to preserve. MongoDB is not synchronized automatically between Atlas and Coolify.
 
 PREPARE
 
@@ -20,7 +21,7 @@ PREPARE
 CREATE THE COOLIFY RESOURCE
 
 1. In Coolify, create a Docker Compose application from the private repository and select the production branch.
-2. Use compose.yaml for MongoDB Atlas. The API uses DB_PROVIDER=mongodb and requires no PostgreSQL service.
+2. Use compose.yaml for the web/API/Redis services; it does not provision MongoDB. For Coolify MongoDB, attach the API to the database's private network and use its internal connection URI. No PostgreSQL service is required.
 3. Confirm Coolify builds the web and API images from the repository. The API container runs database/applySchema.js before starting server.js.
 4. Route the public domain to the web service on its container port 80. Enable HTTPS using Coolify's certificate management.
 5. Expose only the web service publicly. Do not expose Redis port 6379 or API port 5000 to the Internet. Do not open the Compose host port 8080 publicly.
@@ -32,7 +33,7 @@ Set values in Coolify's environment/secret settings, not in source files:
 
 - CLIENT_URL=https://your-domain
 - API_PUBLIC_URL=https://your-domain
-- MONGODB_URI with the Atlas connection URI (restrict Atlas network access to the VPS where practical)
+- MONGODB_CONN with the selected database's connection string (use the private Coolify service connection string when self-hosting MongoDB); existing deployments may use MONGODB_URI as a fallback
 - MONGODB_DATABASE=turfyslot (or the intended database name)
 - Independent JWT_ACCESS_SECRET and JWT_REFRESH_SECRET
 - PAYOUT_ENCRYPTION_KEY
@@ -50,18 +51,19 @@ VAPID and SMS variables are optional unless those services are enabled. Configur
 
 MOVE OR RESTORE THE EXISTING DATA
 
-1. Take a fresh restorable backup of the authoritative source database and the local public/private upload directories. A database backup does not contain uploaded files.
-2. If the authoritative records currently live in MongoDB, restore them to the intended Atlas database before starting the API. If they live only in PostgreSQL, PostgreSQL data will not appear in MongoDB automatically; use the documented migration workflow or explicitly restore a verified MongoDB backup before switching traffic.
-3. Confirm the Atlas cluster supports transactions (replica set or sharded cluster), as required by the application.
-4. Transfer existing uploads to matching persistent directories on the VPS and confirm ownership/permissions allow the API to read and write as needed.
-5. Verify collection counts, expected admin account, key booking/payment records, and available uploaded files before making the site public.
-6. Preserve the final source backup until production smoke tests and a separate post-deployment backup have succeeded.
+1. Schedule a maintenance window and stop every app instance that can write to the source database. Take a fresh restorable source backup and separately back up the local public/private upload directories.
+2. Confirm the Coolify MongoDB destination supports transactions on a replica set or sharded cluster. A standalone MongoDB instance is not supported. Keep the database port private.
+3. Ensure the destination has no application data. From a temporary MongoDB Database Tools environment that can reach both Atlas and the private Coolify service, use mongodump to archive the source database and mongorestore to restore it to the destination. Example commands and cutover checks are in README.md under "Move MongoDB Atlas data to Coolify-hosted MongoDB". Do not use --drop; stop and investigate if the destination already contains application records.
+4. Keep the same database name and all existing encryption keys. Update MONGODB_CONN in Coolify to the destination's internal connection string only after restore and count reconciliation; keep DB_PROVIDER=mongodb.
+5. Transfer existing uploads to matching persistent directories on the VPS and confirm ownership/permissions allow the API to read and write as needed.
+6. Verify collection counts, the existing admin account, important booking/payment records, audit history, and uploaded files before resuming traffic.
+7. Preserve the Atlas source and final backup until production smoke tests and a separate post-cutover backup have succeeded. Rollback requires stopping writes first and reconciling any data created after the cutover.
 
 DEPLOY AND VERIFY
 
-1. Deploy from Coolify and wait for Redis, API, and web health checks to pass.
+1. Deploy from Coolify and wait for Redis, API, and web health checks to pass. The API startup check verifies the configured MongoDB is transaction-capable.
 2. Visit https://your-domain/api/health. It should report a healthy database and provider "mongodb".
-3. Sign in with the existing admin account if data was restored. Run npm run db:seed-admin inside the API container only if the database is genuinely empty.
+3. Sign in with the existing admin account if data was restored. Run npm run db:seed-admin inside the API container only if the database is genuinely empty; never seed a fresh admin as a substitute for restoring the existing database.
 4. Test the HTTPS site, login/logout, public turf listing and availability, owner/admin views, profile and turf images, and private-document access controls.
 5. Configure the effective public API callback base URL in admin Payment Gateway settings. Confirm all provider callback URLs use the HTTPS domain and fixed application paths.
 6. Use provider sandbox mode first. Test checkout, server-side payment verification, duplicate callback handling, cancellation/refund, and webhook delivery before enabling live payment credentials.

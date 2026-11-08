@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import dotenv from 'dotenv';
 import { MongoClient } from 'mongodb';
 import pg from 'pg';
+import { getMongoConnectionString } from './mongoConnection.js';
 
 dotenv.config();
 
@@ -13,7 +14,8 @@ if (!args.has('--confirm')) {
 if ((process.env.DB_PROVIDER || 'postgres').trim().toLowerCase() !== 'postgres') {
   throw new Error('Set DB_PROVIDER=postgres in .env before running this migration.');
 }
-if (!process.env.MONGODB_URI) throw new Error('MONGODB_URI is required for the source database.');
+const mongoConnectionString = getMongoConnectionString();
+if (!mongoConnectionString) throw new Error('MONGODB_CONN is required for the source database (legacy MONGODB_URI is also supported).');
 if (!process.env.PGPASSWORD && !process.env.DATABASE_URL) throw new Error('PostgreSQL credentials are required.');
 
 const parseEncryptionKey = (name) => {
@@ -120,7 +122,7 @@ const pgPool = new Pool(process.env.DATABASE_URL
       password: process.env.PGPASSWORD,
       ssl: process.env.PGSSLMODE === 'require' ? { rejectUnauthorized: false } : false,
     });
-const mongoClient = new MongoClient(process.env.MONGODB_URI, { serverSelectionTimeoutMS: 10_000 });
+const mongoClient = new MongoClient(mongoConnectionString, { serverSelectionTimeoutMS: 10_000 });
 
 const quoteIdentifier = (identifier) => `"${identifier.replaceAll('"', '""')}"`;
 

@@ -3891,8 +3891,13 @@ connectDatabase()
     };
     return beginListening();
   })
-  .catch((error) => {
+  .catch(async (error) => {
     console.error('Database startup failed:', error.message);
+    try {
+      await closeDatabase();
+    } catch (closeError) {
+      console.error('Database shutdown after startup failure failed:', closeError.message);
+    }
     process.exitCode = 1;
   });
 

@@ -3,6 +3,7 @@ import dotenv from 'dotenv';
 import pg from 'pg';
 import { MongoClient } from 'mongodb';
 import { calculateBookingAmounts, findPricingRuleForSlot } from './pricing.js';
+import { getMongoConnectionString } from './mongoConnection.js';
 
 dotenv.config();
 
@@ -13,7 +14,7 @@ if (!['postgres', 'mongodb'].includes(dbProvider)) {
 }
 
 const postgresUrl = process.env.DATABASE_URL;
-const mongoUrl = process.env.MONGODB_URI;
+const mongoUrl = getMongoConnectionString();
 const payoutEncryptionKey = (() => {
   const configured = process.env.PAYOUT_ENCRYPTION_KEY || '';
   if (/^[a-f\d]{64}$/i.test(configured)) return Buffer.from(configured, 'hex');
@@ -61,7 +62,7 @@ if (dbProvider === 'postgres' && !postgresUrl &&
   throw new Error('Set DATABASE_URL or all required PGHOST/PGDATABASE/PGUSER/PGPASSWORD variables for PostgreSQL.');
 }
 if (dbProvider === 'mongodb' && !mongoUrl) {
-  throw new Error('Set MONGODB_URI for MongoDB.');
+  throw new Error('Set MONGODB_CONN for MongoDB (legacy MONGODB_URI is also supported).');
 }
 
 const encryptPayoutDetails = (details) => {
