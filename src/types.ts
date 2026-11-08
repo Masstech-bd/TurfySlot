@@ -379,6 +379,28 @@ export interface PlatformSettings {
   smtpConfigs?: SmtpConfig[];
 }
 
+export interface SupportFaq {
+  id: string;
+  question: string;
+  answer: string;
+}
+
+export interface SupportSettings {
+  email: string;
+  phoneOne: string;
+  phoneTwo: string;
+  address: string;
+  faqs: SupportFaq[];
+}
+
+export const DEFAULT_SUPPORT_SETTINGS: SupportSettings = {
+  email: 'masstech.ctg@gmail.com',
+  phoneOne: '013218850',
+  phoneTwo: '01712906544',
+  address: '3rd Floor, Hafez Plaza, 425 Pathantuli, Chittagong',
+  faqs: [],
+};
+
 export type FeaturedRequestStatus =
   | 'pending_payment'
   | 'payment_submitted'

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
-import { CancellationPolicy, CancellationTier, BookingSource, PaymentGatewayConfig, PaymentGatewayProvider, SmtpConfig } from '../../types';
+import { CancellationPolicy, CancellationTier, BookingSource, DEFAULT_SUPPORT_SETTINGS, PaymentGatewayConfig, PaymentGatewayProvider, SmtpConfig, SupportFaq, SupportSettings } from '../../types';
 import { getBDDateString, formatBDDate, formatBDTimeRange } from '../../utils/datetime';
 import {
   ShieldCheck,
@@ -153,6 +153,11 @@ export const AdminPortal: React.FC = () => {
   const [legalPagesSaving, setLegalPagesSaving] = useState(false);
   const [legalPagesError, setLegalPagesError] = useState('');
   const [legalPagesMessage, setLegalPagesMessage] = useState('');
+  const [supportSettings, setSupportSettings] = useState<SupportSettings>(() => ({ ...DEFAULT_SUPPORT_SETTINGS, faqs: [] }));
+  const [supportSettingsLoading, setSupportSettingsLoading] = useState(false);
+  const [supportSettingsSaving, setSupportSettingsSaving] = useState(false);
+  const [supportSettingsError, setSupportSettingsError] = useState('');
+  const [supportSettingsMessage, setSupportSettingsMessage] = useState('');
   const [policyError, setPolicyError] = useState('');
 
   useEffect(() => {
@@ -921,6 +926,78 @@ export const AdminPortal: React.FC = () => {
     }
   };
 
+  useEffect(() => {
+    if (activeTab !== 'support') return;
+    let cancelled = false;
+    setSupportSettingsLoading(true);
+    setSupportSettingsError('');
+    apiFetch('/api/admin/support-settings')
+      .then(async (response) => {
+        const result = await response.json();
+        if (!response.ok || !result?.success || !result.data) {
+          throw new Error(result?.message || 'Unable to load support settings.');
+        }
+        if (!cancelled) setSupportSettings(result.data as SupportSettings);
+      })
+      .catch((error) => {
+        if (!cancelled) setSupportSettingsError(error instanceof Error ? error.message : 'Unable to load support settings.');
+      })
+      .finally(() => { if (!cancelled) setSupportSettingsLoading(false); });
+    return () => { cancelled = true; };
+  }, [activeTab]);
+
+  const saveSupportSettings = async () => {
+    if (supportSettingsSaving) return;
+    setSupportSettingsSaving(true);
+    setSupportSettingsError('');
+    setSupportSettingsMessage('');
+    try {
+      const response = await apiFetch('/api/admin/support-settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ support: supportSettings }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result?.success || !result.data) {
+        throw new Error(result?.message || 'Unable to save support settings.');
+      }
+      setSupportSettings(result.data as SupportSettings);
+      setSupportSettingsMessage('Support contacts and FAQs saved.');
+    } catch (error) {
+      setSupportSettingsError(error instanceof Error ? error.message : 'Unable to save support settings.');
+    } finally {
+      setSupportSettingsSaving(false);
+    }
+  };
+
+  const updateSupportFaq = (faqId: string, updates: Partial<SupportFaq>) => {
+    setSupportSettings((current) => ({
+      ...current,
+      faqs: current.faqs.map((faq) => faq.id === faqId ? { ...faq, ...updates } : faq),
+    }));
+    setSupportSettingsMessage('');
+  };
+
+  const moveSupportFaq = (index: number, direction: -1 | 1) => {
+    const target = index + direction;
+    if (target < 0 || target >= supportSettings.faqs.length) return;
+    setSupportSettings((current) => {
+      const faqs = [...current.faqs];
+      [faqs[index], faqs[target]] = [faqs[target], faqs[index]];
+      return { ...current, faqs };
+    });
+    setSupportSettingsMessage('');
+  };
+
+  const addSupportFaq = () => {
+    if (supportSettings.faqs.length >= 50) return;
+    setSupportSettings((current) => ({
+      ...current,
+      faqs: [...current.faqs, { id: crypto.randomUUID(), question: '', answer: '' }],
+    }));
+    setSupportSettingsMessage('');
+  };
+
   const recordSubscriptionPayment = async (ownerId: string) => {
     const reference = (await showAppPrompt('Enter the offline subscription payment receipt/reference:'))?.trim();
     if (!reference) return;
@@ -1024,6 +1101,16 @@ export const AdminPortal: React.FC = () => {
             >
               <FileText className="w-3.5 h-3.5" />
               <span>Legal Pages</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('support')}
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
+                activeTab === 'support' ? 'bg-[#C8FF5E] text-[#0A1E14] shadow-md shadow-[#C8FF5E]/20' : 'text-white/70 hover:text-white hover:bg-white/[0.06]'
+              }`}
+            >
+              <HelpCircle className="w-3.5 h-3.5" />
+              <span>Support & FAQs</span>
             </button>
 
             <button
@@ -3280,6 +3367,144 @@ export const AdminPortal: React.FC = () => {
                       {legalPagesSaving ? 'Saving…' : legalPages[legalPageSelection].published ? 'Save & Publish' : 'Save Draft'}
                     </button>
                   </div>
+                </div>
+              </div>
+            )}
+          </section>
+        )}
+
+        {activeTab === 'support' && (
+          <section className="mt-6 max-w-4xl space-y-5">
+            <header className="rounded-2xl border border-white/10 bg-[#0A1E14] p-5 sm:p-6">
+              <h2 className="flex items-center gap-2 text-base font-bold text-white">
+                <HelpCircle className="h-5 w-5 text-[#C8FF5E]" /> Public Support Contacts & FAQs
+              </h2>
+              <p className="mt-2 max-w-3xl text-xs leading-5 text-white/60">
+                Changes take effect publicly after saving. FAQ content is displayed as plain text on the Help Center page.
+              </p>
+            </header>
+
+            {supportSettingsLoading && <p role="status" className="text-sm text-white/60">Loading support settings…</p>}
+            {supportSettingsError && <p role="alert" className="rounded-xl border border-rose-400/20 bg-rose-950/30 p-3 text-sm text-rose-200">{supportSettingsError}</p>}
+
+            {!supportSettingsLoading && (
+              <div className="space-y-5 rounded-2xl border border-white/10 bg-[#0A1E14] p-4 sm:p-6">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <label className="text-xs font-semibold text-white/70">
+                    Support email
+                    <input
+                      type="email"
+                      maxLength={255}
+                      value={supportSettings.email}
+                      onChange={(event) => { setSupportSettings((current) => ({ ...current, email: event.target.value })); setSupportSettingsMessage(''); }}
+                      className="mt-2 min-h-11 w-full rounded-xl border border-white/15 bg-[#07130c] px-3 text-sm text-white outline-none focus:border-[#C8FF5E]/60"
+                    />
+                  </label>
+                  <label className="text-xs font-semibold text-white/70">
+                    Phone number 1
+                    <input
+                      type="tel"
+                      maxLength={40}
+                      value={supportSettings.phoneOne}
+                      onChange={(event) => { setSupportSettings((current) => ({ ...current, phoneOne: event.target.value })); setSupportSettingsMessage(''); }}
+                      className="mt-2 min-h-11 w-full rounded-xl border border-white/15 bg-[#07130c] px-3 text-sm text-white outline-none focus:border-[#C8FF5E]/60"
+                    />
+                  </label>
+                  <label className="text-xs font-semibold text-white/70">
+                    Phone number 2
+                    <input
+                      type="tel"
+                      maxLength={40}
+                      value={supportSettings.phoneTwo}
+                      onChange={(event) => { setSupportSettings((current) => ({ ...current, phoneTwo: event.target.value })); setSupportSettingsMessage(''); }}
+                      className="mt-2 min-h-11 w-full rounded-xl border border-white/15 bg-[#07130c] px-3 text-sm text-white outline-none focus:border-[#C8FF5E]/60"
+                    />
+                  </label>
+                  <label className="text-xs font-semibold text-white/70 sm:col-span-2">
+                    Support address
+                    <textarea
+                      maxLength={300}
+                      rows={2}
+                      value={supportSettings.address}
+                      onChange={(event) => { setSupportSettings((current) => ({ ...current, address: event.target.value })); setSupportSettingsMessage(''); }}
+                      className="mt-2 w-full resize-y rounded-xl border border-white/15 bg-[#07130c] p-3 text-sm text-white outline-none focus:border-[#C8FF5E]/60"
+                    />
+                  </label>
+                </div>
+
+                <div className="space-y-4 border-t border-white/10 pt-5">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-sm font-bold text-white">Help Center FAQs</h3>
+                      <p className="mt-1 text-[11px] text-white/50">{supportSettings.faqs.length} / 50 entries · Publicly visible after saving</p>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={supportSettings.faqs.length >= 50}
+                      onClick={addSupportFaq}
+                      className="min-h-10 rounded-xl border border-[#C8FF5E]/40 px-4 text-xs font-bold text-[#C8FF5E] hover:bg-[#C8FF5E]/10 disabled:opacity-40"
+                    >
+                      Add FAQ
+                    </button>
+                  </div>
+
+                  {supportSettings.faqs.length === 0 && (
+                    <p className="rounded-xl border border-white/10 bg-[#07130c] p-4 text-xs text-white/50">No FAQs have been added. The public Help Center will show an empty-state message.</p>
+                  )}
+
+                  {supportSettings.faqs.map((faq, index) => (
+                    <div key={faq.id} className="space-y-3 rounded-xl border border-white/10 bg-[#07130c] p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <h4 className="text-xs font-bold text-white">FAQ {index + 1}</h4>
+                        <div className="flex items-center gap-2">
+                          <button type="button" aria-label={`Move FAQ ${index + 1} up`} disabled={index === 0} onClick={() => moveSupportFaq(index, -1)} className="min-h-9 rounded-lg border border-white/15 px-3 text-xs text-white/70 disabled:opacity-30">Move up</button>
+                          <button type="button" aria-label={`Move FAQ ${index + 1} down`} disabled={index === supportSettings.faqs.length - 1} onClick={() => moveSupportFaq(index, 1)} className="min-h-9 rounded-lg border border-white/15 px-3 text-xs text-white/70 disabled:opacity-30">Move down</button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSupportSettings((current) => ({ ...current, faqs: current.faqs.filter((item) => item.id !== faq.id) }));
+                              setSupportSettingsMessage('');
+                            }}
+                            className="min-h-9 rounded-lg border border-rose-400/30 px-3 text-xs font-bold text-rose-200 hover:bg-rose-400/10"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      </div>
+                      <label className="block text-xs font-semibold text-white/70">
+                        Question
+                        <input
+                          type="text"
+                          maxLength={200}
+                          value={faq.question}
+                          onChange={(event) => updateSupportFaq(faq.id, { question: event.target.value })}
+                          className="mt-2 min-h-11 w-full rounded-xl border border-white/15 bg-[#0A1E14] px-3 text-sm text-white outline-none focus:border-[#C8FF5E]/60"
+                        />
+                      </label>
+                      <label className="block text-xs font-semibold text-white/70">
+                        Answer
+                        <textarea
+                          maxLength={5000}
+                          rows={4}
+                          value={faq.answer}
+                          onChange={(event) => updateSupportFaq(faq.id, { answer: event.target.value })}
+                          className="mt-2 w-full resize-y rounded-xl border border-white/15 bg-[#0A1E14] p-3 text-sm leading-6 text-white outline-none focus:border-[#C8FF5E]/60"
+                        />
+                      </label>
+                    </div>
+                  ))}
+                </div>
+
+                {supportSettingsMessage && <p role="status" className="text-xs font-semibold text-[#C8FF5E]">{supportSettingsMessage}</p>}
+                <div className="flex justify-end border-t border-white/10 pt-4">
+                  <button
+                    type="button"
+                    disabled={supportSettingsSaving}
+                    onClick={() => void saveSupportSettings()}
+                    className="min-h-11 rounded-xl bg-[#C8FF5E] px-5 py-2 text-xs font-black text-[#0A1E14] disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {supportSettingsSaving ? 'Saving…' : 'Save Support Settings'}
+                  </button>
                 </div>
               </div>
             )}

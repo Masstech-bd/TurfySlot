@@ -56,6 +56,15 @@ if (!['mongodb', 'postgres'].includes(providerName)) {
     };
     await database.writeAdminSetting({ key: 'legal_pages', value: legalPages, adminId });
     assert.deepEqual((await database.readAdminSettings()).legal_pages, legalPages, 'legal page content and publication state must persist');
+    const supportSettings = {
+      email: 'help@example.test',
+      phoneOne: '013218850',
+      phoneTwo: '01712906544',
+      address: 'Support office',
+      faqs: [{ id: 'booking-faq', question: 'How do I book?', answer: 'Choose a turf and an available slot.' }],
+    };
+    await database.writeAdminSetting({ key: 'public_support', value: supportSettings, adminId });
+    assert.deepEqual((await database.readAdminSettings()).public_support, supportSettings, 'support contacts and ordered FAQs must persist');
     for (const key of [
       'platform_fee_enabled', 'gateway_fee_enabled', 'show_fee_breakdown', 'owner_billing_switch_enabled',
       'booking_auto_checkin_enabled', 'booking_auto_complete_enabled',

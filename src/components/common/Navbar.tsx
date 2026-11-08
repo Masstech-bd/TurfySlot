@@ -17,6 +17,7 @@ import {
   PlusCircle,
   FileCheck,
   FileText,
+  HelpCircle,
   Scale,
   Settings as SettingsIcon,
   Heart,
@@ -1075,6 +1076,21 @@ export const Navbar: React.FC = () => {
               >
                 <FileText className="w-4 h-4" />
                 <span>Legal Pages</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  setAdminActiveTab('support');
+                }}
+                className={`text-left font-semibold text-sm py-2 px-3 rounded-xl flex items-center gap-2 ${
+                  adminActiveTab === 'support'
+                    ? 'bg-[#C8FF5E] text-[#0A1E14]'
+                    : 'text-white/80 hover:text-[#C8FF5E] hover:bg-white/[0.05]'
+                }`}
+              >
+                <HelpCircle className="w-4 h-4" />
+                <span>Support & FAQs</span>
               </button>
 
               <button

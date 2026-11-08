@@ -60,8 +60,8 @@ interface AppContextType {
   setPlayerActiveTab: (tab: 'explore' | 'my_bookings' | 'favorites' | 'squads' | 'tournaments') => void;
   ownerActiveTab: 'bookings' | 'turfs' | 'slots' | 'staff' | 'wallet' | 'tournaments';
   setOwnerActiveTab: (tab: 'bookings' | 'turfs' | 'slots' | 'staff' | 'wallet' | 'tournaments') => void;
-  adminActiveTab: 'approvals' | 'users' | 'withdrawals' | 'policy_engine' | 'settings' | 'reports' | 'bookings' | 'disputes' | 'tournaments' | 'legal_pages';
-  setAdminActiveTab: (tab: 'approvals' | 'users' | 'withdrawals' | 'policy_engine' | 'settings' | 'reports' | 'bookings' | 'disputes' | 'tournaments' | 'legal_pages') => void;
+  adminActiveTab: 'approvals' | 'users' | 'withdrawals' | 'policy_engine' | 'settings' | 'reports' | 'bookings' | 'disputes' | 'tournaments' | 'legal_pages' | 'support';
+  setAdminActiveTab: (tab: 'approvals' | 'users' | 'withdrawals' | 'policy_engine' | 'settings' | 'reports' | 'bookings' | 'disputes' | 'tournaments' | 'legal_pages' | 'support') => void;
   openOwnerManualBookingModal: boolean;
   setOpenOwnerManualBookingModal: (open: boolean) => void;
   openStaffManualBookingModal: boolean;
@@ -265,7 +265,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isSessionRestoring, setIsSessionRestoring] = useState<boolean>(true);
   const [playerActiveTab, setPlayerActiveTab] = useState<'explore' | 'my_bookings' | 'favorites' | 'squads' | 'tournaments'>('explore');
   const [ownerActiveTab, setOwnerActiveTab] = useState<'bookings' | 'turfs' | 'slots' | 'staff' | 'wallet' | 'tournaments'>('bookings');
-  const [adminActiveTab, setAdminActiveTab] = useState<'approvals' | 'users' | 'withdrawals' | 'policy_engine' | 'settings' | 'reports' | 'bookings' | 'disputes' | 'tournaments' | 'legal_pages'>('approvals');
+  const [adminActiveTab, setAdminActiveTab] = useState<'approvals' | 'users' | 'withdrawals' | 'policy_engine' | 'settings' | 'reports' | 'bookings' | 'disputes' | 'tournaments' | 'legal_pages' | 'support'>('approvals');
   const [openOwnerManualBookingModal, setOpenOwnerManualBookingModal] = useState<boolean>(false);
   const [openStaffManualBookingModal, setOpenStaffManualBookingModal] = useState<boolean>(false);
   const [isSignInModalOpen, setIsSignInModalOpen] = useState<boolean>(false);

@@ -7,6 +7,7 @@ import { EmailVerificationModal } from './components/common/EmailVerificationMod
 import { ScrollToTopButton } from './components/common/ScrollToTopButton';
 import { AppDialogHost } from './components/common/AppDialog';
 import { LegalPage, LegalPageSlug } from './components/common/LegalPage';
+import { HelpCenterPage } from './components/common/HelpCenterPage';
 import { StartupLoadingScreen } from './components/common/StartupLoadingScreen';
 
 const PlayerPortal = lazy(() => import('./components/player/PlayerPortal').then((module) => ({ default: module.PlayerPortal })));
@@ -18,6 +19,7 @@ const AppContent: React.FC = () => {
   const { currentUser, isSessionRestoring } = useApp();
   const legalPageSlug = window.location.pathname.slice(1) as LegalPageSlug;
   const isLegalPage = ['privacy-policy', 'terms-of-service', 'refund-policy'].includes(legalPageSlug);
+  const isHelpCenterPage = window.location.pathname === '/help-center';
 
   if (isSessionRestoring) {
     return <StartupLoadingScreen />;
@@ -31,7 +33,8 @@ const AppContent: React.FC = () => {
       {/* Role-Specific Portal Content */}
       <main className="flex-1">
         <Suspense fallback={<div className="min-h-[40vh]" aria-label="Loading dashboard" />}>
-          {isLegalPage ? <LegalPage slug={legalPageSlug} />
+          {isHelpCenterPage ? <HelpCenterPage />
+            : isLegalPage ? <LegalPage slug={legalPageSlug} />
             : <>
               {currentUser.role === 'player' && <PlayerPortal />}
               {currentUser.role === 'turf_owner' && <OwnerPortal />}

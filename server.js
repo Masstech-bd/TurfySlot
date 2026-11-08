@@ -1274,6 +1274,88 @@ app.get('/api/public/legal-pages/:slug', async (req, res) => {
   }
 });
 
+const defaultSupportSettings = {
+  email: 'masstech.ctg@gmail.com',
+  phoneOne: '013218850',
+  phoneTwo: '01712906544',
+  address: '3rd Floor, Hafez Plaza, 425 Pathantuli, Chittagong',
+  faqs: [],
+};
+const readSupportSettings = async () => {
+  const settings = await readAdminSettings();
+  const saved = settings.public_support;
+  return {
+    email: typeof saved?.email === 'string' ? saved.email : defaultSupportSettings.email,
+    phoneOne: typeof saved?.phoneOne === 'string' ? saved.phoneOne : defaultSupportSettings.phoneOne,
+    phoneTwo: typeof saved?.phoneTwo === 'string' ? saved.phoneTwo : defaultSupportSettings.phoneTwo,
+    address: typeof saved?.address === 'string' ? saved.address : defaultSupportSettings.address,
+    faqs: Array.isArray(saved?.faqs) ? saved.faqs.map((faq) => ({
+      id: typeof faq?.id === 'string' ? faq.id : '',
+      question: typeof faq?.question === 'string' ? faq.question : '',
+      answer: typeof faq?.answer === 'string' ? faq.answer : '',
+    })) : [],
+  };
+};
+const validPhoneNumber = (value) => typeof value === 'string'
+  && value.length <= 40
+  && /^[0-9+() -]+$/.test(value)
+  && (value.match(/\d/g) || []).length >= 7
+  && (value.match(/\d/g) || []).length <= 20;
+const validSupportSettings = (value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  if (Object.keys(value).length !== 5 || !['email', 'phoneOne', 'phoneTwo', 'address', 'faqs'].every((key) => Object.hasOwn(value, key))) return false;
+  if (typeof value.email !== 'string' || value.email.length > 255 || !/^\S+@\S+\.\S+$/.test(value.email.trim())) return false;
+  if (!validPhoneNumber(value.phoneOne) || !validPhoneNumber(value.phoneTwo)) return false;
+  if (typeof value.address !== 'string' || !value.address.trim() || value.address.trim().length > 300) return false;
+  if (!Array.isArray(value.faqs) || value.faqs.length > 50) return false;
+  const faqIds = new Set();
+  for (const faq of value.faqs) {
+    if (!faq || typeof faq !== 'object' || Array.isArray(faq)
+      || typeof faq.id !== 'string' || !faq.id.trim() || faq.id.trim().length > 100 || faqIds.has(faq.id.trim())
+      || typeof faq.question !== 'string' || !faq.question.trim() || faq.question.trim().length > 200
+      || typeof faq.answer !== 'string' || !faq.answer.trim() || faq.answer.trim().length > 5000) return false;
+    faqIds.add(faq.id.trim());
+  }
+  return true;
+};
+
+app.get('/api/admin/support-settings', requireAuth, requireRole('admin'), async (_req, res) => {
+  try { res.json({ success: true, data: await readSupportSettings() }); }
+  catch (error) {
+    console.error('Admin support settings load failed:', error.message);
+    res.status(500).json({ success: false, message: 'Unable to load support settings.' });
+  }
+});
+
+app.put('/api/admin/support-settings', requireAuth, requireRole('admin'), async (req, res) => {
+  const support = req.body?.support;
+  if (!validSupportSettings(support)) {
+    return res.status(400).json({ success: false, message: 'Enter a valid support email, two phone numbers, address, and up to 50 non-empty FAQs within the field limits.' });
+  }
+  const normalized = {
+    email: support.email.trim(),
+    phoneOne: support.phoneOne.trim(),
+    phoneTwo: support.phoneTwo.trim(),
+    address: support.address.trim(),
+    faqs: support.faqs.map((faq) => ({ id: faq.id.trim(), question: faq.question.trim(), answer: faq.answer.trim() })),
+  };
+  try {
+    await writeAdminSetting({ key: 'public_support', value: normalized, adminId: req.user.id });
+    res.json({ success: true, data: normalized });
+  } catch (error) {
+    console.error('Admin support settings save failed:', error.message);
+    res.status(500).json({ success: false, message: 'Unable to save support settings.' });
+  }
+});
+
+app.get('/api/public/support-settings', async (_req, res) => {
+  try { res.json({ success: true, data: await readSupportSettings() }); }
+  catch (error) {
+    console.error('Public support settings load failed:', error.message);
+    res.status(503).json({ success: false, message: 'Support information is temporarily unavailable.' });
+  }
+});
+
 app.get('/api/admin/settings', requireAuth, requireRole('admin'), async (req, res) => {
   try {
     const settings = await readAdminSettings();

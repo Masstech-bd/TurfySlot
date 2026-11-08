@@ -132,6 +132,7 @@ old one is not progress.
 - Section 80. Branded App-Startup Loading Screen
 - Section 81. Admin-Configured Automatic Check-In and Completion
 - Section 82. Admin Role-Based JSON Data Backups
+- Section 83. Admin-Managed Support Contacts and FAQs
 - Section 63. Automatic Booking Completion and Owner Override
 - Section 62. Explicit Weekly Availability Required for Public Turf Listings
 
@@ -5536,7 +5537,7 @@ The application must support PostgreSQL and MongoDB as alternative database prov
 
 ### 79.1 Scope
 
-- The public footer displays these support contacts: `masstech.ctg@gmail.com`, `013218850`, `01712906544`, and `3rd Floor, Hafez Plaza, 425 Pathantuli, Chittagong`.
+- The public footer initially displays these support contacts: `masstech.ctg@gmail.com`, `013218850`, `01712906544`, and `3rd Floor, Hafez Plaza, 425 Pathantuli, Chittagong`. Admin-managed changes are defined in Section 83.
 - The footer links to public Privacy Policy, Terms of Service, and Refund Policy pages.
 - Admins can edit, preview, and explicitly publish or unpublish the Privacy Policy and Terms of Service content. Initial starter content is an unpublished draft and must clearly require admin review; it must not be presented as approved legal advice or claim practices not specified by the platform.
 - Legal page content is plain text with paragraphs/headings rendered as text; arbitrary HTML is not accepted or executed.
@@ -5622,3 +5623,32 @@ The application must support PostgreSQL and MongoDB as alternative database prov
 - [ ] Non-admin, unauthenticated, and suspended accounts cannot access any export endpoint.
 - [ ] Exports work with both PostgreSQL and MongoDB and do not change source data.
 - [ ] Export failures return an explicit safe error; successful exports download as correctly named JSON attachments.
+
+
+## 83. Admin-Managed Support Contacts and FAQs
+
+### 83.1 Scope
+
+- The footer Support section's email address, two phone numbers, and physical address are editable by an authenticated admin. Initial values are the contacts listed in Section 79.
+- Admins can add, edit, remove, and reorder FAQ question-and-answer entries from the Admin panel. FAQ questions and answers are plain text; arbitrary HTML is not accepted or executed.
+- The footer's “Help Center & FAQs” link opens a public FAQ page showing the currently saved entries. Contact changes and FAQ edits take effect publicly after a successful save; there is no separate draft or publication workflow.
+- Support settings persist through the existing platform settings storage for both PostgreSQL and MongoDB. Admin mutations are recorded in the existing audit log.
+- A public read-only API supplies the saved contacts and FAQ entries. The write API requires a fresh authenticated, database-backed Admin role check.
+- This section does not add a support ticket system, new notification channels, or additional contact fields beyond the email, two phone numbers, and address.
+
+### 83.2 Validation and Data Rules
+
+- The support email must be a valid email address. Phone numbers and address must be non-empty plain text within documented server-side length limits.
+- The two phone numbers may contain digits, spaces, `+`, `-`, and parentheses and must contain 7–20 digits. Address is limited to 300 characters.
+- FAQ lists may contain zero to 50 entries. Each question is limited to 200 characters and each answer to 5,000 characters; both must be non-empty plain text and safely rendered as text. Entry order is the public display order.
+- Public contact links use `mailto:` and `tel:` targets derived from the validated values; displayed text remains the exact saved value.
+- If no support settings have been saved, the public site uses the existing Section 79 contact values and an empty FAQ list.
+
+### 83.3 Definition of Done
+
+- [ ] Admins can edit and save the support email, both phone numbers, address, and FAQ entries in the Admin panel.
+- [ ] The public footer displays the saved contacts after reload and its Help Center & FAQs link opens a page showing the saved FAQ entries.
+- [ ] Invalid contact data, empty FAQ fields, and oversized FAQ lists or values are rejected server-side without changing saved settings.
+- [ ] FAQ content is rendered as text and cannot inject executable markup.
+- [ ] Unauthenticated and non-admin callers cannot update support settings; the public read endpoint exposes only the intended contact and FAQ data.
+- [ ] Changes persist and behave consistently in PostgreSQL and MongoDB, and admin updates are audit logged.

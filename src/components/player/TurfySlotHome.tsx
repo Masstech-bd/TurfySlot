@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Turf, Slot } from '../../types';
+import { DEFAULT_SUPPORT_SETTINGS, SupportSettings, Turf, Slot } from '../../types';
 import { useApp } from '../../context/AppContext';
 import {
   Search,
@@ -126,6 +126,8 @@ export const TurfySlotHome: React.FC<TurfySlotHomeProps> = ({
     });
   };
   const [currentBDTime, setCurrentBDTime] = useState(getBDNow);
+  const [supportSettings, setSupportSettings] = useState<SupportSettings>(DEFAULT_SUPPORT_SETTINGS);
+  const [supportSettingsError, setSupportSettingsError] = useState('');
   const [featuredHomeTurfs, setFeaturedHomeTurfs] = useState<Turf[]>([]);
   const [trendingHomeTurfs, setTrendingHomeTurfs] = useState<Turf[]>([]);
   const [nearbyHomeTurfs, setNearbyHomeTurfs] = useState<Array<Turf & { distanceKm?: number }>>([]);
@@ -136,6 +138,22 @@ export const TurfySlotHome: React.FC<TurfySlotHomeProps> = ({
   const [discoveryError, setDiscoveryError] = useState('');
   const urlStateInitialized = useRef(false);
   const restoringUrlState = useRef(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch('/api/public/support-settings')
+      .then(async (response) => {
+        const result = await response.json();
+        if (!response.ok || !result?.success || !result.data) {
+          throw new Error(result?.message || 'Unable to load public support contacts.');
+        }
+        if (!cancelled) setSupportSettings(result.data as SupportSettings);
+      })
+      .catch(() => {
+        if (!cancelled) setSupportSettingsError('Support contact information could not be refreshed.');
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     const interval = window.setInterval(() => setCurrentBDTime(getBDNow()), 15_000);
@@ -2085,13 +2103,15 @@ export const TurfySlotHome: React.FC<TurfySlotHomeProps> = ({
             <div className="space-y-3">
               <h5 className="text-sm font-bold text-white tracking-wider">Support</h5>
               <ul className="space-y-2 text-xs text-[#7A8A80]">
-                <li><span className="text-white/60">Help Center &amp; FAQs</span></li>
-                <li><a href="mailto:masstech.ctg@gmail.com" className="text-white/60 hover:text-[#C8FF5E]">masstech.ctg@gmail.com</a></li>
+                <li><a href="/help-center" className="text-white/60 hover:text-[#C8FF5E]">Help Center &amp; FAQs</a></li>
+                <li><a href={`mailto:${supportSettings.email}`} className="text-white/60 hover:text-[#C8FF5E]">{supportSettings.email}</a></li>
                 <li className="flex flex-col items-start gap-1">
-                  <a href="tel:013218850" className="text-white/60 hover:text-[#C8FF5E]">013218850</a>
-                  <a href="tel:01712906544" className="text-white/60 hover:text-[#C8FF5E]">01712906544</a>
+                  {[supportSettings.phoneOne, supportSettings.phoneTwo].map((phone) => (
+                    <a key={phone} href={`tel:${phone.replace(/[^0-9+]/g, '')}`} className="text-white/60 hover:text-[#C8FF5E]">{phone}</a>
+                  ))}
                 </li>
-                <li><span className="text-white/60">3rd Floor, Hafez Plaza, 425 Pathantuli, Chittagong</span></li>
+                <li><span className="text-white/60">{supportSettings.address}</span></li>
+                {supportSettingsError && <li role="status" className="text-[10px] text-amber-300">{supportSettingsError}</li>}
               </ul>
             </div>
           </div>
