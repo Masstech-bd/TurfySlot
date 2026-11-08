@@ -129,6 +129,7 @@ interface AppContextType {
     notes?: string;
   }) => Promise<{ booking: Booking | null; error?: string }>;
   cancelBooking: (bookingId: string, reason: string, isOwnerInitiated?: boolean) => Promise<{ success: boolean; refundAmount: number; message: string }>;
+  updateAdminBookingStatus: (bookingId: string, status: 'checked_in' | 'completed') => Promise<{ success: boolean; message: string }>;
   decideCancellationRequest: (bookingId: string, decision: 'approve' | 'reject', reason: string) => Promise<{ success: boolean; message: string }>;
   checkInBooking: (bookingId: string) => Promise<boolean>;
   completeBooking: (bookingId: string) => Promise<boolean>;
@@ -289,6 +290,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     gatewayFeeRate: 0,
     monthlySubscriptionAmount: 0,
     bookingHoldMinutes: 10,
+    autoCheckInEnabled: false,
+    autoCompleteEnabled: true,
     ownerBillingSwitchEnabled: false,
     platformFeeEnabled: false,
     gatewayFeeEnabled: false,
@@ -612,6 +615,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           ...previous,
           globalCommissionRate: Number(platformSettings.global_commission_rate ?? previous.globalCommissionRate),
           bookingHoldMinutes: Number(platformSettings.booking_hold_minutes ?? previous.bookingHoldMinutes ?? 10),
+          autoCheckInEnabled: platformSettings.booking_auto_checkin_enabled === true,
+          autoCompleteEnabled: platformSettings.booking_auto_complete_enabled !== false,
           platformFeeRate: Number(platformSettings.platform_fee_rate ?? previous.platformFeeRate),
           gatewayFeeRate: Number(platformSettings.gateway_fee_rate ?? previous.gatewayFeeRate),
           minWithdrawalAmount: Number(platformSettings.minimum_withdrawal_amount?.amount ?? platformSettings.minimum_withdrawal_amount ?? previous.minWithdrawalAmount),
@@ -1202,6 +1207,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } catch { return { success: false, refundAmount: 0, message: 'Could not reach the booking service.' }; }
   };
 
+  const updateAdminBookingStatus = async (bookingId: string, status: 'checked_in' | 'completed'): Promise<{ success: boolean; message: string }> => {
+    if (currentUser.role !== 'admin') return { success: false, message: 'Only admins can manually update booking status here.' };
+    try {
+      const response = await apiFetch(`/api/admin/bookings/${encodeURIComponent(bookingId)}/status`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result?.success) return { success: false, message: result?.message || 'Unable to update booking status.' };
+      setBookings((previous) => previous.map((booking) => booking.id === bookingId ? { ...booking, status, updatedAt: new Date().toISOString() } : booking));
+      return { success: true, message: status === 'checked_in' ? 'Booking checked in.' : 'Booking marked complete.' };
+    } catch { return { success: false, message: 'Could not reach the booking service.' }; }
+  };
+
   const decideCancellationRequest = async (bookingId: string, decision: 'approve' | 'reject', reason: string): Promise<{ success: boolean; message: string }> => {
     try {
       const response = await apiFetch(`/api/owner/bookings/${encodeURIComponent(bookingId)}/cancellation-request`, {
@@ -1648,6 +1666,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ['gatewayFeeRate', 'gateway_fee_rate'], ['minWithdrawalAmount', 'minimum_withdrawal_amount'],
       ['monthlySubscriptionAmount', 'monthly_subscription_amount'],
       ['bookingHoldMinutes', 'booking_hold_minutes'],
+      ['autoCheckInEnabled', 'booking_auto_checkin_enabled'], ['autoCompleteEnabled', 'booking_auto_complete_enabled'],
       ['platformFeeEnabled', 'platform_fee_enabled'], ['gatewayFeeEnabled', 'gateway_fee_enabled'],
       ['showFeeBreakdown', 'show_fee_breakdown'], ['ownerBillingSwitchEnabled', 'owner_billing_switch_enabled'],
       ['defaultCancellationWindowHours', 'cancellation_window_hours'], ['supportedSports', 'supported_sports'],
@@ -2050,6 +2069,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         upsertBooking,
         createManualBooking,
         cancelBooking,
+        updateAdminBookingStatus,
         decideCancellationRequest,
         checkInBooking,
         completeBooking,

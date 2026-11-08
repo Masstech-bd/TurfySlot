@@ -3602,58 +3602,163 @@ export const releaseMaturedWalletHolds = async () => {
 };
 
 export const completeEndedBookings = async () => {
+  const settings = await readAdminSettings();
+  const autoCheckInEnabled = settings.booking_auto_checkin_enabled === true;
+  const autoCompleteEnabled = settings.booking_auto_complete_enabled !== false;
+  if (!autoCheckInEnabled && !autoCompleteEnabled) return 0;
+
   if (dbProvider === 'postgres') {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
-      const ended = await client.query(
-        `SELECT id,status FROM bookings
-         WHERE status IN ('confirmed','checked_in') AND payment_status='paid' AND cancellation_request_status IS DISTINCT FROM 'pending'
-           AND ((booking_date + end_time) AT TIME ZONE 'Asia/Dhaka') <= NOW()
-         ORDER BY booking_date,end_time LIMIT 500 FOR UPDATE SKIP LOCKED`
-      );
-      for (const booking of ended.rows) {
-        const changed = await client.query("UPDATE bookings SET status='completed',updated_at=NOW() WHERE id=$1 AND status=ANY($2::text[])", [booking.id, ['confirmed', 'checked_in']]);
-        if (changed.rowCount) await client.query(
-          "INSERT INTO audit_logs (actor_role,action,entity_type,entity_id,before_value,after_value) VALUES ('system','booking_auto_completed','booking',$1,$2::jsonb,$3::jsonb)",
-          [booking.id, JSON.stringify({ status: booking.status }), JSON.stringify({ status: 'completed', reason: 'scheduled_end_time_passed' })]
+      let transitioned = 0;
+      if (autoCheckInEnabled) {
+        const dueCheckIns = await client.query(
+          `SELECT id,status FROM bookings
+           WHERE status='confirmed' AND payment_status='paid' AND cancellation_request_status IS DISTINCT FROM 'pending'
+             AND ((booking_date + start_time) AT TIME ZONE 'Asia/Dhaka') <= NOW()
+           ORDER BY booking_date,start_time LIMIT 500 FOR UPDATE SKIP LOCKED`
         );
+        for (const booking of dueCheckIns.rows) {
+          const changed = await client.query(
+            "UPDATE bookings SET status='checked_in',updated_at=NOW() WHERE id=$1 AND status='confirmed' AND payment_status='paid' AND cancellation_request_status IS DISTINCT FROM 'pending'",
+            [booking.id]
+          );
+          if (!changed.rowCount) continue;
+          await client.query(
+            "INSERT INTO audit_logs (actor_role,action,entity_type,entity_id,before_value,after_value) VALUES ('system','booking_auto_checked_in','booking',$1,$2::jsonb,$3::jsonb)",
+            [booking.id, JSON.stringify({ status: booking.status }), JSON.stringify({ status: 'checked_in', reason: 'scheduled_start_time_reached' })]
+          );
+          transitioned += 1;
+        }
+      }
+
+      if (autoCompleteEnabled) {
+        const ended = await client.query(
+          `SELECT id,status FROM bookings
+           WHERE status IN ('confirmed','checked_in') AND payment_status='paid' AND cancellation_request_status IS DISTINCT FROM 'pending'
+             AND ((booking_date + end_time) AT TIME ZONE 'Asia/Dhaka') <= NOW()
+           ORDER BY booking_date,end_time LIMIT 500 FOR UPDATE SKIP LOCKED`
+        );
+        for (const booking of ended.rows) {
+          const changed = await client.query(
+            "UPDATE bookings SET status='completed',updated_at=NOW() WHERE id=$1 AND status=ANY($2::text[]) AND payment_status='paid' AND cancellation_request_status IS DISTINCT FROM 'pending'",
+            [booking.id, ['confirmed', 'checked_in']]
+          );
+          if (!changed.rowCount) continue;
+          await client.query(
+            "INSERT INTO audit_logs (actor_role,action,entity_type,entity_id,before_value,after_value) VALUES ('system','booking_auto_completed','booking',$1,$2::jsonb,$3::jsonb)",
+            [booking.id, JSON.stringify({ status: booking.status }), JSON.stringify({ status: 'completed', reason: 'scheduled_end_time_passed' })]
+          );
+          transitioned += 1;
+        }
       }
       await client.query('COMMIT');
-      return ended.rowCount;
+      return transitioned;
     } catch (error) { await client.query('ROLLBACK'); throw error; }
     finally { client.release(); }
   }
 
   const now = new Date();
-  const due = await mongoDb.collection('bookings').find({ status: { $in: ['confirmed', 'checked_in'] }, payment_status: 'paid', cancellation_request_status: { $ne: 'pending' } }).sort({ booking_date: 1, end_time: 1 }).limit(500).toArray();
-  let completed = 0;
-  for (const booking of due) {
-    const date = booking.booking_date instanceof Date ? booking.booking_date.toISOString().slice(0, 10) : String(booking.booking_date || '').slice(0, 10);
-    const time = String(booking.end_time || '').slice(0, 8).padEnd(8, '0');
-    let endDate = date;
-    let normalizedTime = time;
-    if (time.startsWith('24:00')) {
-      const [year, month, day] = date.split('-').map(Number);
+  const toDhakaDate = (date, time) => {
+    let datePart = date instanceof Date ? date.toISOString().slice(0, 10) : String(date || '').slice(0, 10);
+    let timePart = String(time || '').slice(0, 8).padEnd(8, '0');
+    if (timePart.startsWith('24:00')) {
+      const [year, month, day] = datePart.split('-').map(Number);
       const next = new Date(Date.UTC(year, month - 1, day + 1));
-      endDate = `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, '0')}-${String(next.getUTCDate()).padStart(2, '0')}`;
-      normalizedTime = `00:${time.slice(3)}`;
+      datePart = `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, '0')}-${String(next.getUTCDate()).padStart(2, '0')}`;
+      timePart = `00:${timePart.slice(3)}`;
     }
-    const endsAt = new Date(`${endDate}T${normalizedTime}+06:00`);
-    if (!Number.isFinite(endsAt.getTime()) || endsAt > now) continue;
-    const updatedAt = now.toISOString();
-    const result = await mongoDb.collection('bookings').updateOne(
-      { id: booking.id, status: { $in: ['confirmed', 'checked_in'] }, payment_status: 'paid', cancellation_request_status: { $ne: 'pending' } },
-      { $set: { status: 'completed', updated_at: updatedAt } }
-    );
-    if (!result.modifiedCount) continue;
-    await mongoDb.collection('audit_logs').insertOne({
-      id: crypto.randomUUID(), actor_role: 'system', action: 'booking_auto_completed', entity_type: 'booking', entity_id: booking.id,
-      before_value: { status: booking.status }, after_value: { status: 'completed', reason: 'scheduled_end_time_passed' }, created_at: updatedAt,
-    });
-    completed += 1;
+    return new Date(`${datePart}T${timePart}+06:00`);
+  };
+  let transitioned = 0;
+  const transitionDueBookings = async ({ timeField, nextStatus, action, reason, eligibleStatuses }) => {
+    const candidates = await mongoDb.collection('bookings')
+      .find({ status: { $in: eligibleStatuses }, payment_status: 'paid', cancellation_request_status: { $ne: 'pending' } })
+      .sort({ booking_date: 1, [timeField]: 1 }).limit(500).toArray();
+    for (const booking of candidates) {
+      const dueAt = toDhakaDate(booking.booking_date, booking[timeField]);
+      if (!Number.isFinite(dueAt.getTime()) || dueAt > now) continue;
+      const session = mongoClient.startSession();
+      try {
+        let changed = false;
+        await session.withTransaction(async () => {
+          const result = await mongoDb.collection('bookings').updateOne(
+            { id: booking.id, status: { $in: eligibleStatuses }, payment_status: 'paid', cancellation_request_status: { $ne: 'pending' } },
+            { $set: { status: nextStatus, updated_at: now.toISOString() } },
+            { session }
+          );
+          if (!result.modifiedCount) return;
+          await mongoDb.collection('audit_logs').insertOne({
+            id: crypto.randomUUID(), actor_role: 'system', action, entity_type: 'booking', entity_id: booking.id,
+            before_value: { status: booking.status }, after_value: { status: nextStatus, reason }, created_at: now.toISOString(),
+          }, { session });
+          changed = true;
+        });
+        if (changed) transitioned += 1;
+      } finally { await session.endSession(); }
+    }
+  };
+
+  if (autoCheckInEnabled) await transitionDueBookings({
+    timeField: 'start_time', nextStatus: 'checked_in', action: 'booking_auto_checked_in',
+    reason: 'scheduled_start_time_reached', eligibleStatuses: ['confirmed'],
+  });
+  if (autoCompleteEnabled) await transitionDueBookings({
+    timeField: 'end_time', nextStatus: 'completed', action: 'booking_auto_completed',
+    reason: 'scheduled_end_time_passed', eligibleStatuses: ['confirmed', 'checked_in'],
+  });
+  return transitioned;
+};
+
+export const updateAdminBookingStatus = async ({ bookingId, adminId, status }) => {
+  if (!['checked_in', 'completed'].includes(status)) throw new Error('Invalid admin booking status.');
+  const allowedPreviousStatuses = status === 'checked_in' ? ['confirmed'] : ['confirmed', 'checked_in'];
+  if (dbProvider === 'postgres') {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const current = await client.query(
+        'SELECT * FROM bookings WHERE id=$1 AND status=ANY($2::text[]) AND payment_status=$3 AND cancellation_request_status IS DISTINCT FROM $4 FOR UPDATE',
+        [bookingId, allowedPreviousStatuses, 'paid', 'pending']
+      );
+      if (!current.rowCount) { await client.query('ROLLBACK'); return null; }
+      const updated = await client.query(
+        'UPDATE bookings SET status=$2,updated_at=NOW() WHERE id=$1 RETURNING *',
+        [bookingId, status]
+      );
+      await client.query(
+        "INSERT INTO audit_logs (actor_id,actor_role,action,entity_type,entity_id,before_value,after_value) VALUES ($1,'admin',$2,'booking',$3,$4::jsonb,$5::jsonb)",
+        [adminId, `booking_${status}`, bookingId, JSON.stringify({ status: current.rows[0].status }), JSON.stringify({ status, source: 'admin_manual' })]
+      );
+      await client.query('COMMIT');
+      return updated.rows[0];
+    } catch (error) { await client.query('ROLLBACK'); throw error; }
+    finally { client.release(); }
   }
-  return completed;
+
+  const session = mongoClient.startSession();
+  try {
+    let updated = null;
+    await session.withTransaction(async () => {
+      const current = await mongoDb.collection('bookings').findOne({
+        id: bookingId, status: { $in: allowedPreviousStatuses }, payment_status: 'paid', cancellation_request_status: { $ne: 'pending' },
+      }, { session });
+      if (!current) return;
+      const updatedAt = new Date().toISOString();
+      const result = await mongoDb.collection('bookings').updateOne(
+        { id: bookingId, status: { $in: allowedPreviousStatuses }, payment_status: 'paid', cancellation_request_status: { $ne: 'pending' } },
+        { $set: { status, updated_at: updatedAt } }, { session }
+      );
+      if (!result.modifiedCount) return;
+      await mongoDb.collection('audit_logs').insertOne({
+        id: crypto.randomUUID(), actor_id: adminId, actor_role: 'admin', action: `booking_${status}`, entity_type: 'booking', entity_id: bookingId,
+        before_value: { status: current.status }, after_value: { status, source: 'admin_manual' }, created_at: updatedAt,
+      }, { session });
+      updated = { ...current, status, updated_at: updatedAt };
+    });
+    return updated;
+  } finally { await session.endSession(); }
 };
 
 export const getBookingForUser = async (bookingId, user) => {
@@ -4549,6 +4654,180 @@ const ensureMongoIndexes = async () => {
       { id: crypto.randomUUID(), policy_id: policyId, hours_before_start_min: 24, hours_before_start_max: null, refund_percentage: 100, sort_order: 2 },
     ]);
   }
+};
+
+const backupTables = new Set([
+  'users', 'turf_owner_profiles', 'turfs', 'turf_photos', 'turf_pricing_rules', 'staff_assignments', 'slots',
+  'bookings', 'booking_slots', 'manual_bookings', 'turf_addons', 'booking_addons', 'turf_addon_inventory_log',
+  'payments', 'refunds', 'wallets', 'wallet_transactions', 'withdrawals', 'reviews', 'notifications', 'favorites',
+  'disputes', 'audit_logs', 'turf_removal_requests', 'turf_cancellation_policies', 'owner_cancellation_policies',
+  'featured_listings', 'platform_credits', 'platform_credit_usages', 'featured_listing_cancellations',
+  'owner_subscription_payments', 'tournaments', 'tournament_teams', 'tournament_matches', 'tournament_roster_members',
+  'open_matches', 'match_participants', 'cancellation_policy_audit_logs', 'booking_status_history',
+]);
+
+const sanitizeBackupValue = (value) => {
+  if (Array.isArray(value)) return value.map(sanitizeBackupValue);
+  if (!value || typeof value !== 'object' || value instanceof Date) return value;
+  return Object.fromEntries(Object.entries(value)
+    .filter(([key]) => !/password|token|authcode|codehash|secret|credential|privatekey|encryptionkey|apikey|gatewayresponse|encrypted|businessdocuments|payoutdetails|verificationdocuments|session|cookie|authorization|setuplink/i.test(key.replace(/[^a-z0-9]/gi, '')))
+    .map(([key, item]) => [key, sanitizeBackupValue(item)]));
+};
+
+const readBackupRows = async (table, column, ids) => {
+  if (!backupTables.has(table)) throw new Error('Unsupported backup table.');
+  const uniqueIds = [...new Set(ids.filter((id) => typeof id === 'string' && id.length > 0))];
+  if (!uniqueIds.length) return [];
+  if (dbProvider === 'postgres') {
+    const available = await pool.query('SELECT to_regclass($1) AS table_name', [`public.${table}`]);
+    if (!available.rows[0]?.table_name) return [];
+    return (await pool.query(`SELECT * FROM "${table}" WHERE "${column}" = ANY($1::uuid[])`, [uniqueIds])).rows;
+  }
+  return mongoDb.collection(table).find({ [column]: { $in: uniqueIds } }).toArray();
+};
+
+const readBackupUsersByRole = async (role) => dbProvider === 'postgres'
+  ? (await pool.query('SELECT * FROM users WHERE role=$1 ORDER BY created_at,id', [role])).rows
+  : mongoDb.collection('users').find({ role }).sort({ created_at: 1, id: 1 }).toArray();
+
+export const createAdminJsonBackup = async (category) => {
+  const categoryRoles = { players: 'player', owners: 'turf_owner', admins: 'admin' };
+  if (!Object.hasOwn(categoryRoles, category)) throw new Error('Unsupported backup category.');
+
+  const users = await readBackupUsersByRole(categoryRoles[category]);
+  const userIds = users.map((user) => user.id);
+  const records = { users };
+  const add = async (name, table, column, ids) => {
+    records[name] = await readBackupRows(table, column, ids);
+    return records[name];
+  };
+  const includeBookingRelations = async (bookingIds) => {
+    await Promise.all([
+      add('booking_slots', 'booking_slots', 'booking_id', bookingIds),
+      add('manual_bookings', 'manual_bookings', 'booking_id', bookingIds),
+      add('booking_addons', 'booking_addons', 'booking_id', bookingIds),
+      add('payments', 'payments', 'booking_id', bookingIds),
+      add('refunds', 'refunds', 'booking_id', bookingIds),
+      add('disputes', 'disputes', 'booking_id', bookingIds),
+      add('open_matches', 'open_matches', 'booking_id', bookingIds),
+      add('wallet_transactions_for_bookings', 'wallet_transactions', 'booking_id', bookingIds),
+      add('reviews_for_bookings', 'reviews', 'booking_id', bookingIds),
+    ]);
+  };
+
+  if (category === 'players') {
+    const bookings = await add('bookings', 'bookings', 'player_id', userIds);
+    const bookingIds = bookings.map((booking) => booking.id);
+    await Promise.all([
+      includeBookingRelations(bookingIds),
+      add('reviews', 'reviews', 'player_id', userIds),
+      add('favorites', 'favorites', 'player_id', userIds),
+      add('notifications', 'notifications', 'user_id', userIds),
+      add('tournaments_captained', 'tournament_teams', 'captain_id', userIds),
+      add('match_participations', 'match_participants', 'player_id', userIds),
+    ]);
+    await add('slots_for_bookings', 'slots', 'id', (records.booking_slots || []).map((link) => link.slot_id));
+    const favoriteTurfIds = (records.favorites || []).map((favorite) => favorite.turf_id);
+    await add('favorite_turfs', 'turfs', 'id', favoriteTurfIds);
+    const matches = records.open_matches || [];
+    const participatedMatchIds = (records.match_participations || []).map((participant) => participant.match_id);
+    await Promise.all([
+      add('match_participants_for_matches', 'match_participants', 'match_id', matches.map((match) => match.id)),
+      add('matches_for_participation', 'open_matches', 'id', participatedMatchIds),
+    ]);
+    const playerAuditIds = [
+      ...userIds,
+      ...bookingIds,
+      ...matches.map((match) => match.id),
+      ...(records.matches_for_participation || []).map((match) => match.id),
+      ...(records.reviews || []).map((review) => review.id),
+    ];
+    const [actorAudit, entityAudit] = await Promise.all([
+      readBackupRows('audit_logs', 'actor_id', userIds),
+      readBackupRows('audit_logs', 'entity_id', playerAuditIds),
+    ]);
+    records.audit_logs = [...new Map([...actorAudit, ...entityAudit].map((row) => [row.id, row])).values()];
+  } else if (category === 'owners') {
+    const profiles = await add('owner_profiles', 'turf_owner_profiles', 'user_id', userIds);
+    const turfs = await add('turfs', 'turfs', 'owner_id', userIds);
+    const turfIds = turfs.map((turf) => turf.id);
+    const assignments = await add('staff_assignments', 'staff_assignments', 'turf_id', turfIds);
+    const staffIds = [...new Set(assignments.map((assignment) => assignment.staff_user_id))];
+    const staffUsers = await add('staff_users', 'users', 'id', staffIds);
+    const bookings = await add('bookings', 'bookings', 'turf_id', turfIds);
+    const bookingIds = bookings.map((booking) => booking.id);
+    const addons = await add('turf_addons', 'turf_addons', 'turf_id', turfIds);
+    const listings = await add('featured_listings', 'featured_listings', 'owner_id', userIds);
+    const credits = await add('platform_credits', 'platform_credits', 'owner_id', userIds);
+    const tournaments = await add('tournaments', 'tournaments', 'turf_id', turfIds);
+    const teams = await add('tournament_teams', 'tournament_teams', 'tournament_id', tournaments.map((item) => item.id));
+    const openMatches = await add('open_matches', 'open_matches', 'booking_id', bookingIds);
+
+    await Promise.all([
+      includeBookingRelations(bookingIds),
+      add('turf_photos', 'turf_photos', 'turf_id', turfIds),
+      add('turf_pricing_rules', 'turf_pricing_rules', 'turf_id', turfIds),
+      add('slots', 'slots', 'turf_id', turfIds),
+      add('turf_addon_inventory_log', 'turf_addon_inventory_log', 'addon_id', addons.map((item) => item.id)),
+      add('reviews', 'reviews', 'turf_id', turfIds),
+      add('wallets', 'wallets', 'owner_id', userIds),
+      add('wallet_transactions', 'wallet_transactions', 'owner_id', userIds),
+      add('withdrawals', 'withdrawals', 'owner_id', userIds),
+      add('notifications', 'notifications', 'user_id', userIds),
+      add('notifications_for_staff', 'notifications', 'user_id', staffIds),
+      add('turf_removal_requests', 'turf_removal_requests', 'turf_id', turfIds),
+      add('turf_cancellation_policies', 'turf_cancellation_policies', 'turf_id', turfIds),
+      add('owner_cancellation_policies', 'owner_cancellation_policies', 'owner_id', userIds),
+      add('owner_subscription_payments', 'owner_subscription_payments', 'owner_id', userIds),
+      add('tournament_matches', 'tournament_matches', 'tournament_id', tournaments.map((item) => item.id)),
+      add('tournament_roster_members', 'tournament_roster_members', 'tournament_id', tournaments.map((item) => item.id)),
+      add('match_participants', 'match_participants', 'match_id', openMatches.map((item) => item.id)),
+      add('featured_listing_cancellations', 'featured_listing_cancellations', 'listing_id', listings.map((item) => item.id)),
+      add('platform_credit_usages', 'platform_credit_usages', 'credit_id', credits.map((item) => item.id)),
+    ]);
+    const featuredPaymentIds = listings.map((item) => item.payment_id).filter(Boolean);
+    const featuredPayments = await add('featured_listing_payments', 'payments', 'id', featuredPaymentIds);
+    const creditUsageIds = (records.platform_credit_usages || []).map((usage) => usage.used_for_id).filter(Boolean);
+    if (creditUsageIds.length) await add('featured_listings_from_credits', 'featured_listings', 'id', creditUsageIds);
+    const ownerAuditIds = [...userIds, ...staffIds];
+    const entityAuditIds = [
+      ...userIds,
+      ...turfIds,
+      ...bookingIds,
+      ...(records.slots || []).map((item) => item.id),
+      ...(records.staff_assignments || []).map((item) => item.id),
+      ...(records.turf_addons || []).map((item) => item.id),
+      ...(records.withdrawals || []).map((item) => item.id),
+      ...(records.featured_listings || []).map((item) => item.id),
+      ...(records.platform_credits || []).map((item) => item.id),
+      ...(records.tournaments || []).map((item) => item.id),
+      ...(records.tournament_teams || []).map((item) => item.id),
+      ...(records.tournament_matches || []).map((item) => item.id),
+      ...(records.featured_listing_cancellations || []).map((item) => item.id),
+      ...(records.owner_subscription_payments || []).map((item) => item.id),
+      ...(records.turf_removal_requests || []).map((item) => item.id),
+    ];
+    const [actorAudit, entityAudit] = await Promise.all([
+      readBackupRows('audit_logs', 'actor_id', ownerAuditIds),
+      readBackupRows('audit_logs', 'entity_id', entityAuditIds),
+    ]);
+    records.audit_logs = [...new Map([...actorAudit, ...entityAudit].map((row) => [row.id, row])).values()];
+    records.owner_profiles = profiles;
+    records.staff_users = staffUsers;
+    records.tournament_teams = teams;
+    records.featured_listing_payments = featuredPayments;
+  } else {
+    await add('admin_audit_logs', 'audit_logs', 'actor_id', userIds);
+  }
+
+  const safeRecords = Object.fromEntries(Object.entries(records).map(([name, value]) => [name, sanitizeBackupValue(value)]));
+  return {
+    formatVersion: 1,
+    category,
+    generatedAt: new Date().toISOString(),
+    databaseProvider: dbProvider,
+    records: safeRecords,
+  };
 };
 
 // Section 49: Open Match reads and captain posting. These records are social

@@ -64,6 +64,7 @@ export const AdminPortal: React.FC = () => {
     markRefundProcessed,
     updatePlatformSettings,
     cancelBooking,
+    updateAdminBookingStatus,
     resolveDispute,
     addCancellationPolicy,
     updateCancellationPolicy,
@@ -163,12 +164,16 @@ export const AdminPortal: React.FC = () => {
     setPlatformFeeEnabled(settings.platformFeeEnabled !== false);
     setGatewayFeeEnabled(settings.gatewayFeeEnabled !== false);
     setShowFeeBreakdown(settings.showFeeBreakdown !== false);
+    setAutoCheckInEnabled(settings.autoCheckInEnabled === true);
+    setAutoCompleteEnabled(settings.autoCompleteEnabled !== false);
     setMinWd(settings.minWithdrawalAmount);
   }, [
     settings.globalCommissionRate,
     settings.platformFeeRate,
     settings.monthlySubscriptionAmount,
     settings.bookingHoldMinutes,
+    settings.autoCheckInEnabled,
+    settings.autoCompleteEnabled,
     settings.ownerBillingSwitchEnabled,
     settings.platformFeeEnabled,
     settings.gatewayFeeEnabled,
@@ -343,6 +348,7 @@ export const AdminPortal: React.FC = () => {
   const [userStatusFilter, setUserStatusFilter] = useState<'all' | 'active' | 'pending_approval' | 'suspended'>('all');
   const [bookingSearchQuery, setBookingSearchQuery] = useState('');
   const [bookingPage, setBookingPage] = useState(1);
+  const [bookingStatusSavingId, setBookingStatusSavingId] = useState<string | null>(null);
   const bookingsPerPage = 12;
 
   const filteredUsers = users.filter((u) => {
@@ -412,6 +418,8 @@ export const AdminPortal: React.FC = () => {
   const [platformFee, setPlatformFee] = useState(settings.platformFeeRate);
   const [monthlySubscriptionAmount, setMonthlySubscriptionAmount] = useState(settings.monthlySubscriptionAmount || 0);
   const [bookingHoldMinutes, setBookingHoldMinutes] = useState(settings.bookingHoldMinutes ?? 10);
+  const [autoCheckInEnabled, setAutoCheckInEnabled] = useState(settings.autoCheckInEnabled === true);
+  const [autoCompleteEnabled, setAutoCompleteEnabled] = useState(settings.autoCompleteEnabled !== false);
   const [ownerBillingSwitchEnabled, setOwnerBillingSwitchEnabled] = useState(settings.ownerBillingSwitchEnabled === true);
   const [platformFeeEnabled, setPlatformFeeEnabled] = useState(settings.platformFeeEnabled !== false);
   const [gatewayFeeEnabled, setGatewayFeeEnabled] = useState(settings.gatewayFeeEnabled !== false);
@@ -424,7 +432,10 @@ export const AdminPortal: React.FC = () => {
   const [settingsSaveError, setSettingsSaveError] = useState('');
   const [featureFlagError, setFeatureFlagError] = useState('');
   const [updatingFeatureFlag, setUpdatingFeatureFlag] = useState<string | null>(null);
-  const [settingsSubTab, setSettingsSubTab] = useState<'commission' | 'features' | 'packages' | 'gateways' | 'email' | 'danger'>('commission');
+  const [settingsSubTab, setSettingsSubTab] = useState<'commission' | 'features' | 'packages' | 'gateways' | 'email' | 'backups' | 'danger'>('commission');
+  const [backupBusyCategory, setBackupBusyCategory] = useState<'players' | 'owners' | 'admins' | null>(null);
+  const [backupError, setBackupError] = useState('');
+  const [backupMessage, setBackupMessage] = useState('');
   const [killSwitchPhrase, setKillSwitchPhrase] = useState('');
   const [killSwitchBusy, setKillSwitchBusy] = useState(false);
   const [killSwitchComplete, setKillSwitchComplete] = useState(false);
@@ -789,6 +800,8 @@ export const AdminPortal: React.FC = () => {
         minWithdrawalAmount: Number(minWd),
         monthlySubscriptionAmount: Number(monthlySubscriptionAmount),
         bookingHoldMinutes: Number(bookingHoldMinutes),
+        autoCheckInEnabled,
+        autoCompleteEnabled,
         ownerBillingSwitchEnabled,
         platformFeeEnabled,
         gatewayFeeEnabled,
@@ -801,6 +814,42 @@ export const AdminPortal: React.FC = () => {
     } finally {
       setSettingsSaving(false);
     }
+  };
+
+  const handleAdminBookingStatus = async (bookingId: string, status: 'checked_in' | 'completed') => {
+    setBookingStatusSavingId(bookingId);
+    try {
+      const result = await updateAdminBookingStatus(bookingId, status);
+      if (!result.success) showAppAlert(result.message);
+    } finally { setBookingStatusSavingId(null); }
+  };
+
+  const downloadAdminBackup = async (category: 'players' | 'owners' | 'admins') => {
+    setBackupBusyCategory(category);
+    setBackupError('');
+    setBackupMessage('');
+    try {
+      const response = await apiFetch(`/api/admin/backups/${category}`);
+      if (!response.ok) {
+        const result = await response.json().catch(() => null);
+        throw new Error(result?.message || 'Unable to create this backup.');
+      }
+      const file = await response.blob();
+      if (!file.size || !response.headers.get('content-type')?.includes('application/json')) {
+        throw new Error('The server returned an invalid backup file.');
+      }
+      const downloadUrl = URL.createObjectURL(file);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = `turfyslot-${category}-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
+      setBackupMessage(`${category === 'players' ? 'Player' : category === 'owners' ? 'Turf owner' : 'Admin'} backup downloaded.`);
+    } catch (error) {
+      setBackupError(error instanceof Error ? error.message : 'Unable to create this backup.');
+    } finally { setBackupBusyCategory(null); }
   };
 
   useEffect(() => {
@@ -819,6 +868,8 @@ export const AdminPortal: React.FC = () => {
       if (!cancelled && result?.success) {
         setMonthlySubscriptionAmount(Number(result.data?.monthly_subscription_amount ?? 0));
         setBookingHoldMinutes(Number(result.data?.booking_hold_minutes ?? 10));
+        setAutoCheckInEnabled(result.data?.booking_auto_checkin_enabled === true);
+        setAutoCompleteEnabled(result.data?.booking_auto_complete_enabled !== false);
       }
     }).catch(() => undefined);
     return () => { cancelled = true; };
@@ -1787,12 +1838,13 @@ export const AdminPortal: React.FC = () => {
                 { key: 'packages', label: 'Packages' },
                 { key: 'gateways', label: 'Payment Gateways' },
                 { key: 'email', label: 'Email / SMTP' },
+                { key: 'backups', label: 'Data Backups' },
                 { key: 'danger', label: 'Danger Zone' },
               ].map((tab) => (
                 <button
                   key={tab.key}
                   type="button"
-                  onClick={() => setSettingsSubTab(tab.key as 'commission' | 'features' | 'packages' | 'gateways' | 'email' | 'danger')}
+                  onClick={() => setSettingsSubTab(tab.key as 'commission' | 'features' | 'packages' | 'gateways' | 'email' | 'backups' | 'danger')}
                   className={`px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${
                     settingsSubTab === tab.key
                       ? 'bg-[#C8FF5E] text-[#0A1E14] shadow-md shadow-[#C8FF5E]/20'
@@ -1875,6 +1927,8 @@ export const AdminPortal: React.FC = () => {
                     { label: 'Charge payment gateway fee', value: gatewayFeeEnabled, onChange: setGatewayFeeEnabled },
                     { label: 'Show Transparent Fee Breakdown', value: showFeeBreakdown, onChange: setShowFeeBreakdown },
                     { label: 'Allow owners to switch billing model at renewal', value: ownerBillingSwitchEnabled, onChange: setOwnerBillingSwitchEnabled },
+                    { label: 'Automatically check in paid bookings at scheduled start time', value: autoCheckInEnabled, onChange: setAutoCheckInEnabled },
+                    { label: 'Automatically complete paid bookings after scheduled end time', value: autoCompleteEnabled, onChange: setAutoCompleteEnabled },
                   ].map((control) => (
                     <div key={control.label} className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-[#07130c] p-3">
                       <span className="text-xs font-semibold text-white/80">{control.label}</span>
@@ -2516,6 +2570,37 @@ export const AdminPortal: React.FC = () => {
               </div>
             )}
 
+            {settingsSubTab === 'backups' && (
+              <section className="max-w-3xl rounded-2xl border border-white/10 bg-[#0A1E14] p-6 shadow-lg">
+                <h2 className="text-lg font-black text-white">Download data backups</h2>
+                <p className="mt-2 text-sm leading-relaxed text-white/65">
+                  Download separate JSON exports for player accounts, turf owners, or admins and their related records. Admin exports include account email and status for login reference, but exports omit password hashes, tokens, gateway/email credentials, encrypted payout details, and private verification documents. Keep downloaded files in a secure location.
+                </p>
+                <div className="mt-5 grid gap-3 sm:grid-cols-3">
+                  {([
+                    { category: 'players', title: 'Player accounts', description: 'Player profiles and their bookings, reviews, favorites, and notifications.' },
+                    { category: 'owners', title: 'Turf owner accounts', description: 'Owner profiles, turfs, bookings, staff assignments, and financial records.' },
+                    { category: 'admins', title: 'Admin accounts', description: 'Admin account identity/status and admin-attributed audit history.' },
+                  ] as const).map(({ category, title, description }) => (
+                    <div key={category} className="rounded-xl border border-white/10 bg-[#07130c] p-4">
+                      <h3 className="text-sm font-bold text-white">{title}</h3>
+                      <p className="mt-2 min-h-12 text-xs leading-relaxed text-white/55">{description}</p>
+                      <button
+                        type="button"
+                        onClick={() => void downloadAdminBackup(category)}
+                        disabled={backupBusyCategory !== null}
+                        className="mt-4 w-full rounded-lg bg-[#C8FF5E] px-3 py-2 text-xs font-bold text-[#0A1E14] transition hover:bg-[#A8E63E] disabled:cursor-wait disabled:opacity-50"
+                      >
+                        {backupBusyCategory === category ? 'Preparing JSON…' : 'Download JSON'}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                {backupMessage && <p className="mt-4 text-sm font-semibold text-emerald-300" role="status">{backupMessage}</p>}
+                {backupError && <p className="mt-4 text-sm font-semibold text-rose-300" role="alert">{backupError}</p>}
+              </section>
+            )}
+
             {settingsSubTab === 'danger' && (
               <section className="max-w-3xl rounded-2xl border border-red-500/40 bg-red-950/20 p-6 shadow-lg">
                 <div className="flex items-start gap-3">
@@ -2803,7 +2888,7 @@ export const AdminPortal: React.FC = () => {
                         <td className="py-3 px-4">
                           <span
                             className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full border ${
-                              b.status === 'confirmed'
+                              b.status === 'confirmed' || b.status === 'checked_in'
                                 ? 'bg-emerald-950/60 text-emerald-300 border-emerald-500/40'
                                 : b.status === 'completed'
                                 ? 'bg-[#0e271a] text-[#C8FF5E] border-[#C8FF5E]/40'
@@ -2909,6 +2994,24 @@ export const AdminPortal: React.FC = () => {
                           </span>
                         </td>
                         <td className="py-3 px-4 text-right">
+                          {b.paymentStatus === 'paid' && b.cancellationRequestStatus !== 'pending' && b.status === 'confirmed' && (
+                            <button
+                              onClick={() => void handleAdminBookingStatus(b.id, 'checked_in')}
+                              disabled={bookingStatusSavingId === b.id}
+                              className="mr-2 px-2.5 py-1 bg-emerald-950/40 text-emerald-300 hover:bg-emerald-900/60 text-[11px] font-semibold rounded-xl border border-emerald-800/40 cursor-pointer transition-colors disabled:opacity-50"
+                            >
+                              {bookingStatusSavingId === b.id ? 'Saving...' : 'Check in'}
+                            </button>
+                          )}
+                          {b.paymentStatus === 'paid' && b.cancellationRequestStatus !== 'pending' && ['confirmed', 'checked_in'].includes(b.status) && (
+                            <button
+                              onClick={() => void handleAdminBookingStatus(b.id, 'completed')}
+                              disabled={bookingStatusSavingId === b.id}
+                              className="mr-2 px-2.5 py-1 bg-[#0e271a] text-[#C8FF5E] hover:bg-[#143522] text-[11px] font-semibold rounded-xl border border-[#C8FF5E]/30 cursor-pointer transition-colors disabled:opacity-50"
+                            >
+                              {bookingStatusSavingId === b.id ? 'Saving...' : 'Mark complete'}
+                            </button>
+                          )}
                           {b.status !== 'cancelled' && b.status !== 'refunded' && (
                             <button
                               onClick={async () => {

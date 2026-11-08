@@ -130,6 +130,8 @@ old one is not progress.
 - Section 78. Bulk Weekly and Date-Range Slot Schedules
 - Section 79. Admin-Managed Legal Pages and Public Support Contacts
 - Section 80. Branded App-Startup Loading Screen
+- Section 81. Admin-Configured Automatic Check-In and Completion
+- Section 82. Admin Role-Based JSON Data Backups
 - Section 63. Automatic Booking Completion and Owner Override
 - Section 62. Explicit Weekly Availability Required for Public Turf Listings
 
@@ -5574,3 +5576,49 @@ The application must support PostgreSQL and MongoDB as alternative database prov
 - [ ] The football animation is self-contained and honors reduced-motion preferences.
 - [ ] An unavailable or unresponsive refresh endpoint cannot keep the startup loading screen visible beyond 8 seconds; the app continues in guest mode.
 - [ ] Routine data-loading behavior and existing authentication/session logic remain unchanged.
+
+
+## 81. Admin-Configured Automatic Check-In and Completion
+
+### 81.1 Scope
+
+- The Admin booking settings provide independent controls for automatic check-in at the scheduled start time and automatic completion after the scheduled end time.
+- Automatic check-in is disabled by default. Automatic completion is enabled by default to preserve Section 63's existing behavior. An admin may enable or disable either automation at any time; changes apply to future scheduled transitions and do not rewrite booking history.
+- Automatic transitions apply only to paid bookings in `confirmed` or `checked_in` status, including manual bookings whose payment status is explicitly `paid`. Unpaid, pending, cancelled, expired, refunded, or cancellation-review-pending bookings are never automatically transitioned.
+- Automatic check-in changes an eligible `confirmed` booking to `checked_in` once its scheduled start date/time has arrived in Bangladesh Standard Time. Automatic completion changes eligible `confirmed` or `checked_in` bookings to `completed` once their scheduled end date/time has passed.
+- Owners retain their existing ability to manually check in and complete their own bookings. Admins can also manually check in a paid confirmed booking or mark a paid confirmed/checked-in booking completed from the Admin booking panel. Existing staff permissions and owner scoping remain unchanged.
+- Manual admin actions use the existing booking state machine, require a database-backed admin role check, and are audit logged with the acting admin. Automatic transitions remain idempotent and audit logged as system actions.
+- Both automatic transitions run server-side at least once per minute, regardless of whether any dashboard is open, and persist identically through PostgreSQL and MongoDB.
+
+### 81.2 Definition of Done
+
+- [ ] Admins can independently enable or disable automatic check-in and automatic completion; settings persist and are audit logged in both database providers.
+- [ ] With defaults, automatic check-in is off and the existing automatic completion remains on.
+- [ ] When enabled, eligible paid online and paid manual bookings are checked in at their start time and completed after their end time in Bangladesh Standard Time.
+- [ ] Disabling either automation prevents that automatic transition without blocking the other automation or manual controls.
+- [ ] Admins can manually check in and complete eligible bookings from the Admin booking panel; only the allowed status transitions and paid bookings are accepted server-side.
+- [ ] Owners retain their existing manual check-in/completion controls, and staff permissions and turf scoping are unchanged.
+- [ ] Repeated scheduler runs and concurrent manual actions cannot duplicate or reverse transitions; each successful transition is audit logged once.
+- [ ] Unpaid, cancelled, expired, refunded, and cancellation-review-pending bookings are never automatically transitioned.
+- [ ] Existing completion, review eligibility, cancellation, wallet, and booking behavior remains intact when automatic check-in is disabled.
+
+
+## 82. Admin Role-Based JSON Data Backups
+
+### 82.1 Scope
+
+- The authenticated Admin panel provides three separate JSON download actions: Player Accounts, Turf Owner Accounts, and Admin Accounts. These are export-only backups; importing or restoring a backup is not included.
+- Each export includes the selected role's account/profile data and related application records. Player exports include that player's bookings and related booking records, reviews, favorites, and notifications. Owner exports include the owner's profile, turfs, staff assignments, bookings for those turfs, manual-booking records, payments, refunds, wallet/ledger records, withdrawals, and related operational records. Admin exports include admin account identity/status fields and audit-log entries attributed to admins.
+- The Admin Accounts export includes account identity/status (including email and role) for login-account reference, but never includes password hashes, plaintext passwords, access/refresh tokens, authentication codes, or session secrets.
+- No export includes gateway/SMTP credentials or ciphertext, encryption keys, private business verification documents, or unrelated platform settings. Secrets and sensitive fields are excluded server-side, not merely hidden in the UI.
+- Every export endpoint requires a fresh authenticated, database-backed Admin role check. Exports are generated from the currently selected database provider without mutating data. Responses use JSON attachment downloads and include the export category and generation timestamp.
+- The three actions remain separate so an operator can back up one account category without downloading the other categories.
+
+### 82.2 Definition of Done
+
+- [ ] Admins can download separate valid JSON files for Player Accounts, Turf Owner Accounts, and Admin Accounts.
+- [ ] Each file includes the selected accounts and their related records, scoped so one player's or owner's export cannot include another account's unrelated records.
+- [ ] Admin exports include admin account identity/status and admin-attributed audit history, but no password hashes, tokens, authentication codes, session secrets, gateway/SMTP credentials or ciphertext, encryption keys, private verification documents, or unrelated settings.
+- [ ] Non-admin, unauthenticated, and suspended accounts cannot access any export endpoint.
+- [ ] Exports work with both PostgreSQL and MongoDB and do not change source data.
+- [ ] Export failures return an explicit safe error; successful exports download as correctly named JSON attachments.

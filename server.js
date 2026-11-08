@@ -114,6 +114,8 @@ import {
   listBookingsForStaff,
   updateStaffBookingStatus,
   updateOwnerBookingStatus,
+  updateAdminBookingStatus,
+  createAdminJsonBackup,
   createStaffAccountAndAssignments,
   listOwnerStaff,
   listStaffAssignmentsForUser,
@@ -1176,6 +1178,8 @@ const adminSettingValidators = {
   minimum_withdrawal_amount: (value) => Number.isFinite(Number(value?.amount ?? value)) && Number(value?.amount ?? value) >= 0,
   cancellation_window_hours: (value) => Number.isInteger(Number(value)) && Number(value) >= 0 && Number(value) <= 720,
   booking_hold_minutes: (value) => Number.isInteger(Number(value)) && Number(value) >= 1 && Number(value) <= 60,
+  booking_auto_checkin_enabled: (value) => typeof value === 'boolean',
+  booking_auto_complete_enabled: (value) => typeof value === 'boolean',
   monthly_subscription_amount: (value) => Number.isFinite(Number(value)) && Number(value) >= 0 && Number(value) <= 10000000,
   owner_billing_switch_enabled: (value) => typeof value === 'boolean',
   platform_fee_enabled: (value) => typeof value === 'boolean',
@@ -1520,7 +1524,7 @@ app.put('/api/admin/settings/:key', requireAuth, requireRole('admin'), async (re
   if (!validator) return res.status(404).json({ success: false, message: 'Setting is not configurable through this API.' });
   if (!validator(req.body.value)) return res.status(400).json({ success: false, message: 'Setting value is invalid.' });
   try {
-    const booleanKeys = ['platform_fee_enabled', 'gateway_fee_enabled', 'show_fee_breakdown', 'owner_billing_switch_enabled'];
+    const booleanKeys = ['platform_fee_enabled', 'gateway_fee_enabled', 'show_fee_breakdown', 'owner_billing_switch_enabled', 'booking_auto_checkin_enabled', 'booking_auto_complete_enabled'];
     const value = req.params.key === 'public_api_base_url'
       ? normalizePublicApiBaseUrl(req.body.value, { allowHttpLocalhost: process.env.NODE_ENV !== 'production' })
       : booleanKeys.includes(req.params.key) || ['supported_sports', 'minimum_withdrawal_amount'].includes(req.params.key)
@@ -2922,6 +2926,34 @@ app.get('/api/admin/bookings', requireAuth, requireRole('admin'), async (req, re
   for (const key of ['turfId', 'ownerId', 'playerId']) if (filters[key].length > 100) return res.status(400).json({ success: false, message: 'Invalid identifier filter.' });
   try { res.json({ success: true, data: await listBookingsForAdmin(filters) }); }
   catch (error) { console.error('Admin booking report failed:', error.message); res.status(500).json({ success: false, message: 'Unable to load the booking report.' }); }
+});
+
+app.post('/api/admin/bookings/:bookingId/status', requireAuth, requireRole('admin'), async (req, res) => {
+  const status = String(req.body.status || '');
+  if (!['checked_in', 'completed'].includes(status)) return res.status(400).json({ success: false, message: 'Choose check-in or completion.' });
+  try {
+    const booking = await updateAdminBookingStatus({ bookingId: req.params.bookingId, adminId: req.user.id, status });
+    if (!booking) return res.status(409).json({ success: false, message: 'Only paid bookings without a pending cancellation request can be checked in or completed from their current status.' });
+    res.json({ success: true, data: booking });
+  } catch (error) {
+    console.error('Admin booking status update failed:', error.message);
+    res.status(500).json({ success: false, message: 'Unable to update this booking status.' });
+  }
+});
+
+app.get('/api/admin/backups/:category', requireAuth, requireRole('admin'), async (req, res) => {
+  const category = String(req.params.category || '').toLowerCase();
+  if (!['players', 'owners', 'admins'].includes(category)) return res.status(404).json({ success: false, message: 'Backup category not found.' });
+  try {
+    const backup = await createAdminJsonBackup(category);
+    const date = backup.generatedAt.slice(0, 10);
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Content-Disposition', `attachment; filename="turfyslot-${category}-backup-${date}.json"`);
+    res.type('application/json').send(JSON.stringify(backup));
+  } catch (error) {
+    console.error(`Admin ${category} backup export failed:`, error.message);
+    res.status(500).json({ success: false, message: 'Unable to create this backup. No backup file was generated.' });
+  }
 });
 
 app.post('/api/admin/bookings/:bookingId/force-refund', requireAuth, requireRole('admin'), async (req, res) => {

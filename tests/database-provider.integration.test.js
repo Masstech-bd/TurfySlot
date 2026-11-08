@@ -56,10 +56,15 @@ if (!['mongodb', 'postgres'].includes(providerName)) {
     };
     await database.writeAdminSetting({ key: 'legal_pages', value: legalPages, adminId });
     assert.deepEqual((await database.readAdminSettings()).legal_pages, legalPages, 'legal page content and publication state must persist');
-    for (const key of ['platform_fee_enabled', 'gateway_fee_enabled', 'show_fee_breakdown', 'owner_billing_switch_enabled']) {
+    for (const key of [
+      'platform_fee_enabled', 'gateway_fee_enabled', 'show_fee_breakdown', 'owner_billing_switch_enabled',
+      'booking_auto_checkin_enabled', 'booking_auto_complete_enabled',
+    ]) {
       await database.writeAdminSetting({ key, value: false, adminId });
       assert.equal((await database.readAdminSettings())[key], false, `${key} must persist when disabled`);
     }
+    await database.writeAdminSetting({ key: 'booking_auto_complete_enabled', value: true, adminId });
+    assert.equal((await database.readAdminSettings()).booking_auto_complete_enabled, true, 'automatic completion can be enabled independently');
     await assert.rejects(
       database.setFeatureFlag({ key: 'not_a_flag', value: true, adminId }),
       /Invalid feature flag update/
@@ -277,8 +282,14 @@ if (!['mongodb', 'postgres'].includes(providerName)) {
     assert.equal(booking.status, 'confirmed');
 
     const foreignStaffBooking = await database.createManualBooking({
-      ...bookingInput, turfId: turfs[1].id, idempotencyKey: `manual-booking-other-${suffix}`,
+      ...bookingInput, turfId: turfs[1].id, paymentStatus: 'paid', idempotencyKey: `manual-booking-other-${suffix}`,
     });
+    assert.equal(await database.updateAdminBookingStatus({ bookingId: booking.id, adminId: admin.id, status: 'checked_in' }), null, 'unpaid manual bookings cannot be checked in by an admin');
+    const checkedInBooking = await database.updateAdminBookingStatus({ bookingId: foreignStaffBooking.id, adminId: admin.id, status: 'checked_in' });
+    assert.equal(checkedInBooking.status, 'checked_in', 'admins can manually check in paid manual bookings');
+    const completedBooking = await database.updateAdminBookingStatus({ bookingId: foreignStaffBooking.id, adminId: admin.id, status: 'completed' });
+    assert.equal(completedBooking.status, 'completed', 'admins can manually complete paid bookings');
+    assert.equal(await database.updateAdminBookingStatus({ bookingId: foreignStaffBooking.id, adminId: admin.id, status: 'completed' }), null, 'repeated admin transitions do not change completed bookings');
     const scopedBookings = await database.listBookingsForStaff(staffResult.user.id);
     assert.deepEqual(scopedBookings.map((item) => item.id), [booking.id], 'staff see bookings only for assigned turfs');
     assert.equal(scopedBookings[0].customer_name || null, null, 'customer contact is hidden without its explicit permission');
@@ -475,6 +486,24 @@ if (!['mongodb', 'postgres'].includes(providerName)) {
     const afterCancellation = await database.getOwnerWallet(owner.id);
     assert.equal(Number(afterCancellation.wallet.held_balance), 0);
     assert.equal(afterCancellation.transactions.filter((item) => item.idempotency_key === `booking-refund-debit:${booking.id}`).length, 1);
+
+    const [playerBackup, ownerBackup, adminBackup] = await Promise.all([
+      database.createAdminJsonBackup('players'),
+      database.createAdminJsonBackup('owners'),
+      database.createAdminJsonBackup('admins'),
+    ]);
+    assert.ok(playerBackup.records.bookings.some((item) => item.id === booking.id), "player backup contains the player's booking");
+    const exportedSlotIds = playerBackup.records.slots_for_bookings.map((item) => item.id).sort();
+    const linkedSlotIds = playerBackup.records.booking_slots.map((item) => item.slot_id).sort();
+    assert.deepEqual(exportedSlotIds, [...new Set(linkedSlotIds)].sort(), 'player backup includes only slots linked to the exported bookings');
+    assert.ok(ownerBackup.records.users.some((item) => item.id === owner.id), 'owner backup contains the turf owner account');
+    assert.ok(ownerBackup.records.turfs.some((item) => item.id === turf.id), 'owner backup contains the owner turf');
+    assert.ok(adminBackup.records.users.some((item) => item.id === admin.id), 'admin backup contains admin login identity');
+    assert.ok(adminBackup.records.users.every((item) => item.role === 'admin'), 'admin backup does not include other user roles');
+    assert.equal(JSON.stringify([playerBackup, ownerBackup, adminBackup]).includes('password_hash'), false, 'backup exports omit password hashes');
+    assert.equal(JSON.stringify(ownerBackup).includes('payout_details'), false, 'owner backup omits encrypted payout details');
+    assert.equal(JSON.stringify(ownerBackup).includes('business_documents'), false, 'owner backup omits private verification documents');
+    await assert.rejects(database.createAdminJsonBackup('invalid'), /Unsupported backup category/);
 
     const replacement = await database.createBookingHold({
       playerId: players[0].id, turfId: turf.id, date, startTime: '10:00', durationHours: 1,

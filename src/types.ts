@@ -338,6 +338,8 @@ export interface PlatformSettings {
   gatewayFeeRate: number;       // e.g. 2.5%
   monthlySubscriptionAmount?: number;
   bookingHoldMinutes?: number;
+  autoCheckInEnabled?: boolean;
+  autoCompleteEnabled?: boolean;
   ownerBillingSwitchEnabled?: boolean;
   platformFeeEnabled?: boolean;
   gatewayFeeEnabled?: boolean;
