@@ -14,6 +14,9 @@ services:
     build:
       context: .
       target: api
+    networks:
+      - default
+      - coolify
     depends_on:
       redis:
         condition: service_healthy
@@ -85,3 +88,8 @@ volumes:
   uploads_data:
   uploads_public_data:
   uploads_backup:
+
+networks:
+  coolify:
+    external: true
+    name: coolify
