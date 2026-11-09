@@ -41,7 +41,7 @@ The application does not dual-write or synchronize the two providers. To move a 
 
 ## Production deployment with Coolify
 
-Deploy this repository as a Docker Compose application using `compose.yaml` with either MongoDB Atlas or a Coolify-hosted MongoDB replica set. `compose.mongodb.yaml` is retained as an equivalent explicit MongoDB configuration. Configure the required variables in Coolify's secret/environment settings before starting either stack:
+Deploy this repository as a Docker Compose application using `compose.yaml` with either MongoDB Atlas or a Coolify-hosted MongoDB replica set. `compose.mongodb.yaml` is retained as an equivalent explicit MongoDB configuration. The API joins Coolify's shared network for MongoDB, so the bundled Redis uses the unique `turfyslot-redis` alias to avoid resolving to Coolify's own password-protected Redis service. If `REDIS_URL` is explicitly set in Coolify, set it to `redis://turfyslot-redis:6379`; otherwise, the Compose default uses this address. Configure the required variables in Coolify's secret/environment settings before starting either stack:
 
 - `CLIENT_URL` and `API_PUBLIC_URL` with the public HTTPS URLs
 - Strong, independent `JWT_ACCESS_SECRET` and `JWT_REFRESH_SECRET`

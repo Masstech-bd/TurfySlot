@@ -23,7 +23,7 @@ services:
       CLIENT_URL: ${CLIENT_URL:?Set CLIENT_URL to the public HTTPS site URL}
       API_PUBLIC_URL: ${API_PUBLIC_URL:?Set API_PUBLIC_URL to the public HTTPS API URL}
       DB_PROVIDER: mongodb
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      REDIS_URL: ${REDIS_URL:-redis://turfyslot-redis:6379}
       MONGODB_CONN: ${MONGODB_CONN:-${MONGODB_URI:-}}
       MONGODB_URI: ${MONGODB_URI:-}
       MONGODB_DATABASE: ${MONGODB_DATABASE:-turfyslot}
@@ -60,6 +60,10 @@ services:
   redis:
     image: redis:7-alpine
     command: ["redis-server", "--appendonly", "yes"]
+    networks:
+      default:
+        aliases:
+          - turfyslot-redis
     volumes:
       - redis_data:/data
     healthcheck:

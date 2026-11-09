@@ -35,6 +35,7 @@ Set values in Coolify's environment/secret settings, not in source files:
 - API_PUBLIC_URL=https://your-domain
 - MONGODB_CONN with the selected database's connection string (use the private Coolify service connection string when self-hosting MongoDB); existing deployments may use MONGODB_URI as a fallback
 - MONGODB_DATABASE=turfyslot (or the intended database name)
+- If set explicitly, REDIS_URL=redis://turfyslot-redis:6379 for the bundled Redis service; do not use the generic redis hostname on the shared Coolify network.
 - Independent JWT_ACCESS_SECRET and JWT_REFRESH_SECRET
 - PAYOUT_ENCRYPTION_KEY
 - SMTP_CONFIG_ENCRYPTION_KEY
