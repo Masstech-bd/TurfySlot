@@ -23,15 +23,6 @@ services:
     volumes:
       - mongo_rs_data:/data/db
       - mongo_rs_config:/data/configdb
-    healthcheck:
-      test:
-        - CMD-SHELL
-        - >-
-          mongosh --quiet --username "$$MONGO_INITDB_ROOT_USERNAME" --password "$$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin --eval 'db.adminCommand({ ping: 1 }).ok'
-      interval: 10s
-      timeout: 5s
-      retries: 12
-
 volumes:
   mongo_rs_data:
   mongo_rs_config:
