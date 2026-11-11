@@ -42,8 +42,19 @@ import completeTeamActionImg from '../../assets/images/complete_team_action_1788
 import { ClickableDatePicker, CustomSelect } from '../common/CustomSelect';
 import { TurfMap } from '../common/LazyTurfMap';
 import { formatBDTimeRange, getBDDateString, getBDNow } from '../../utils/datetime';
+import { locationFilterValue, parseLocationFilter } from '../../utils/locationFilters';
 import { apiFetch } from '../../utils/apiClient';
-import { calculateDisplayedTurfPrice } from '../../../database/pricing.js';
+import { calculateDisplayedTurfPrice, getDisplayedPricingSlots, getPricingBlockSlots } from '../../../database/pricing.js';
+
+interface HeroFilterOptions {
+  supportedSports: string[];
+  locations: Array<{ area: string; city: string }>;
+}
+
+const isHeroLocation = (location: unknown): location is { area: string; city: string } =>
+  typeof location === 'object' && location !== null &&
+  'area' in location && typeof location.area === 'string' &&
+  'city' in location && typeof location.city === 'string';
 
 interface SquadMatch {
   id: string;
@@ -83,6 +94,12 @@ interface TurfySlotHomeProps {
 }
 
 const turfStartingPrice = (turf: Turf) => Math.min(turf.basePricePerHour, ...(turf.pricingRules || []).map((rule) => rule.pricePerHour));
+const addLocationFilterParams = (params: URLSearchParams, value: string) => {
+  if (value === 'All') return;
+  const location = parseLocationFilter(value);
+  if (location.area) params.set('area', location.area);
+  if (location.city) params.set('city', location.city);
+};
 
 export const TurfySlotHome: React.FC<TurfySlotHomeProps> = ({
   filteredTurfs,
@@ -109,6 +126,35 @@ export const TurfySlotHome: React.FC<TurfySlotHomeProps> = ({
   setActiveTab,
 }) => {
   const { isAuthenticated, openSignInModal, turfs, currentUser, settings, openMatches, tournaments } = useApp();
+  const [heroFilterOptions, setHeroFilterOptions] = useState<HeroFilterOptions>({ supportedSports: [], locations: [] });
+  const [heroFilterError, setHeroFilterError] = useState('');
+  useEffect(() => {
+    let cancelled = false;
+    const loadHeroFilterOptions = async () => {
+      try {
+        const response = await apiFetch('/api/public/hero-filter-options');
+        const result = await response.json();
+        if (!response.ok || result?.success !== true || !Array.isArray(result.data?.supportedSports) || !Array.isArray(result.data?.locations)) {
+          throw new Error(result?.message || 'Unable to load home-page filters.');
+        }
+        if (!cancelled) {
+          setHeroFilterOptions({
+            supportedSports: result.data.supportedSports.filter((sport: unknown): sport is string => typeof sport === 'string'),
+            locations: result.data.locations.filter(isHeroLocation),
+          });
+          setHeroFilterError('');
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setHeroFilterError(error instanceof Error ? error.message : 'Unable to load home-page filters.');
+          console.error('Unable to load home-page hero filter options:', error);
+        }
+      }
+    };
+    void loadHeroFilterOptions();
+    return () => { cancelled = true; };
+  }, []);
+
   const startingPriceForCard = (turf: Turf) => calculateDisplayedTurfPrice({
     baseAmount: turfStartingPrice(turf),
     platformRate: turf.ownerBillingModel === 'monthly_subscription' || settings.platformFeeEnabled === false ? 0 : settings.platformFeeRate,
@@ -227,6 +273,17 @@ export const TurfySlotHome: React.FC<TurfySlotHomeProps> = ({
       : selectedTurf
       ? (slotsByTurf[selectedTurf.id] || []).filter((slot) => slot.status === 'locked' && slot.lockedByUserId === currentUser.id)
       : [];
+  const visibleSelectedBaseAmount = visibleSelectedBookingSlots.reduce((sum, slot) => sum + slot.price, 0);
+  const visibleSelectedTurf = visibleSelectedBookingSlots.length
+    ? turfs.find((turf) => turf.id === visibleSelectedBookingSlots[0].turfId)
+    : undefined;
+  const displayedSelectedBookingPrice = calculateDisplayedTurfPrice({
+    baseAmount: visibleSelectedBaseAmount,
+    platformRate: visibleSelectedTurf?.ownerBillingModel === 'monthly_subscription' || settings.platformFeeEnabled === false
+      ? 0 : settings.platformFeeRate,
+    gatewayRate: settings.gatewayFeeEnabled === false ? 0 : settings.gatewayFeeRate,
+    showFeeBreakdown: settings.showFeeBreakdown !== false,
+  });
 
   const homeTurfs = useMemo(
     () =>
@@ -302,7 +359,6 @@ export const TurfySlotHome: React.FC<TurfySlotHomeProps> = ({
 
   const activeSearch = selectedArea !== 'All' || selectedSport !== 'All' ||
     (allTurfsSportFilter !== 'All Sports') || minimumPrice !== '' || maximumPrice !== '' || minimumRating !== '';
-
   const discoveryFiltersKey = [selectedArea, selectedSport, allTurfsSportFilter, allTurfsSort, minimumPrice, maximumPrice, minimumRating, userCoords?.lat, userCoords?.lng].join('|');
   useEffect(() => {
     let cancelled = false;
@@ -315,7 +371,7 @@ export const TurfySlotHome: React.FC<TurfySlotHomeProps> = ({
         params.set('lat', String(userCoords.lat));
         params.set('lng', String(userCoords.lng));
       }
-      if (selectedArea !== 'All') params.set('area', selectedArea);
+      addLocationFilterParams(params, selectedArea);
       const sport = allTurfsSportFilter !== 'All Sports' && !['4+ Rating', 'Open Now'].includes(allTurfsSportFilter)
         ? allTurfsSportFilter
         : selectedSport !== 'All' ? selectedSport : '';
@@ -357,7 +413,7 @@ export const TurfySlotHome: React.FC<TurfySlotHomeProps> = ({
       params.set('lat', String(userCoords.lat));
       params.set('lng', String(userCoords.lng));
     }
-    if (selectedArea !== 'All') params.set('area', selectedArea);
+    addLocationFilterParams(params, selectedArea);
     const sport = allTurfsSportFilter !== 'All Sports' && !['4+ Rating', 'Open Now'].includes(allTurfsSportFilter)
       ? allTurfsSportFilter
       : selectedSport !== 'All' ? selectedSport : '';
@@ -384,8 +440,8 @@ export const TurfySlotHome: React.FC<TurfySlotHomeProps> = ({
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    for (const key of ['area', 'sport', 'sort', 'price_min', 'price_max', 'rating_min']) params.delete(key);
-    if (selectedArea !== 'All') params.set('area', selectedArea);
+    for (const key of ['area', 'city', 'sport', 'sort', 'price_min', 'price_max', 'rating_min']) params.delete(key);
+    addLocationFilterParams(params, selectedArea);
     const sport = allTurfsSportFilter !== 'All Sports' && !['4+ Rating', 'Open Now'].includes(allTurfsSportFilter)
       ? allTurfsSportFilter
       : selectedSport !== 'All' ? selectedSport : '';
@@ -408,7 +464,15 @@ export const TurfySlotHome: React.FC<TurfySlotHomeProps> = ({
     const restoreFiltersFromUrl = () => {
       restoringUrlState.current = true;
       const params = new URLSearchParams(window.location.search);
-      setSelectedArea(params.get('area') || 'All');
+      const area = params.get('area') || '';
+      const city = params.get('city') || '';
+      if (!area && !city) setSelectedArea('All');
+      else {
+        const matchingOption = heroFilterOptions.locations.find((location) =>
+          location.area.toLowerCase() === area.toLowerCase() &&
+          (!city || location.city.toLowerCase() === city.toLowerCase()));
+        setSelectedArea(locationFilterValue(matchingOption || { area, city }));
+      }
       setSelectedSport(params.get('sport') || 'All');
       setAllTurfsSort(params.get('sort') || 'relevance');
       setMinimumPrice(params.get('price_min') || '');
@@ -417,7 +481,7 @@ export const TurfySlotHome: React.FC<TurfySlotHomeProps> = ({
     };
     window.addEventListener('popstate', restoreFiltersFromUrl);
     return () => window.removeEventListener('popstate', restoreFiltersFromUrl);
-  }, [setSelectedArea, setSelectedSport]);
+  }, [heroFilterOptions.locations, setSelectedArea, setSelectedSport]);
 
   // Looking for Teammates Community Matches (Section 49)
   const communityMatchesList = settings.featureFlags?.squad_enabled
@@ -621,10 +685,11 @@ export const TurfySlotHome: React.FC<TurfySlotHomeProps> = ({
                     onChange={setSelectedArea}
                     triggerClassName="bg-transparent py-0.5 text-xs font-semibold sm:text-sm"
                     options={[
-                      { value: 'All', label: 'All Locations' }, { value: 'Banani', label: 'Banani, Dhaka' },
-                      { value: 'Gulshan', label: 'Gulshan, Dhaka' }, { value: 'Dhanmondi', label: 'Dhanmondi, Dhaka' },
-                      { value: 'Uttara', label: 'Uttara, Dhaka' }, { value: 'Mirpur', label: 'Mirpur, Dhaka' },
-                      { value: 'Chattogram', label: 'Chattogram, Bangladesh' },
+                      { value: 'All', label: 'All Locations' },
+                      ...heroFilterOptions.locations.map((location) => ({
+                        value: locationFilterValue(location),
+                        label: [location.area, location.city].filter(Boolean).join(', '),
+                      })),
                     ]}
                   />
                 </div>
@@ -642,13 +707,8 @@ export const TurfySlotHome: React.FC<TurfySlotHomeProps> = ({
                     onChange={setSelectedSport}
                     triggerClassName="bg-transparent py-0.5 text-xs font-semibold sm:text-sm"
                     options={[
-                      { value: 'All', label: 'All Sports' }, { value: 'Football', label: 'Football / Futsal' },
-                      { value: 'Cricket', label: 'Box Cricket & Nets' }, { value: 'Futsal', label: 'Indoor Futsal' },
-                      { value: 'Badminton', label: 'Badminton Court' },
-                      ...[...new Set(turfs.flatMap((turf) => turf.sportTypes || []))]
-                        .filter((sport) => !['Football', 'Cricket', 'Futsal', 'Badminton'].includes(sport))
-                        .sort((left, right) => left.localeCompare(right))
-                        .map((sport) => ({ value: sport, label: sport })),
+                      { value: 'All', label: 'All Sports' },
+                      ...heroFilterOptions.supportedSports.map((sport) => ({ value: sport, label: sport })),
                     ]}
                   />
                 </div>
@@ -675,6 +735,7 @@ export const TurfySlotHome: React.FC<TurfySlotHomeProps> = ({
                 <span>Search Slots</span>
               </button>
             </div>
+            {heroFilterError && <p role="alert" className="mt-2 text-left text-xs text-rose-200">{heroFilterError}</p>}
           </div>
         </div>
       </section>
@@ -1549,10 +1610,26 @@ export const TurfySlotHome: React.FC<TurfySlotHomeProps> = ({
 
             {/* Slots Grid */}
             <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
-              {(slotsByTurf[selectedTurf.id] || []).slice(0, 12).map((slot) => {
-                const isAvail = slot.status === 'available';
-                const isLocked = slot.status === 'locked';
-                const isOwnedLockedSlot = isLocked && slot.lockedByUserId === currentUser.id;
+              {getDisplayedPricingSlots(slotsByTurf[selectedTurf.id] || []).slice(0, 12).map((slot) => {
+                const isFixedBlock = slot.pricingMode === 'fixed_total';
+                const blockSlots = isFixedBlock ? getPricingBlockSlots(slotsByTurf[selectedTurf.id] || [], slot) : [slot];
+                const expectedBlockHours = isFixedBlock
+                  ? (Number((slot.fixedBlockEndTime || slot.endTime).split(':')[0]) * 60 + Number((slot.fixedBlockEndTime || slot.endTime).split(':')[1]) -
+                    Number((slot.fixedBlockStartTime || slot.startTime).split(':')[0]) * 60 - Number((slot.fixedBlockStartTime || slot.startTime).split(':')[1])) / 60
+                  : 1;
+                const validFixedBlock = !isFixedBlock || (
+                  Number.isInteger(expectedBlockHours) && expectedBlockHours > 0 &&
+                  blockSlots.length === expectedBlockHours &&
+                  blockSlots[0]?.startTime === slot.fixedBlockStartTime &&
+                  blockSlots[blockSlots.length - 1]?.endTime === slot.fixedBlockEndTime
+                );
+                const isAvail = validFixedBlock && (isFixedBlock
+                  ? blockSlots.every((item) => item.status === 'available')
+                  : slot.status === 'available');
+                const isLocked = isFixedBlock ? blockSlots.some((item) => item.status === 'locked') : slot.status === 'locked';
+                const isOwnedLockedSlot = isFixedBlock
+                  ? blockSlots.length > 0 && blockSlots.every((item) => item.status === 'locked' && item.lockedByUserId === currentUser.id)
+                  : isLocked && slot.lockedByUserId === currentUser.id;
                 const isSelected = selectedBookingSlots.some((selectedSlot) => selectedSlot.id === slot.id);
                 const [startHour, startMinute] = slot.startTime.split(':').map(Number);
                 const [endHour, endMinute] = slot.endTime.split(':').map(Number);
@@ -1560,7 +1637,7 @@ export const TurfySlotHome: React.FC<TurfySlotHomeProps> = ({
                 const currentMinutes = currentBDTime.getHours() * 60 + currentBDTime.getMinutes();
                 const isPast = slot.date < today || (slot.date === today && endHour * 60 + endMinute <= currentMinutes);
                 const hasStarted = slot.date < today || (slot.date === today && startHour * 60 + startMinute <= currentMinutes);
-                const isClickable = !hasStarted && (isAvail || isOwnedLockedSlot);
+                const isClickable = validFixedBlock && !hasStarted && (isAvail || isOwnedLockedSlot);
 
                 return (
                   <button
@@ -1582,15 +1659,16 @@ export const TurfySlotHome: React.FC<TurfySlotHomeProps> = ({
                     }`}
                   >
                       <span className={`text-xs font-bold ${isPast ? 'text-slate-500' : 'text-[#1A2E24] group-hover:text-[#6db31e]'}`}>
-                      {formatBDTimeRange(slot.startTime, slot.endTime)}
+                      {formatBDTimeRange(slot.startTime, isFixedBlock ? slot.fixedBlockEndTime || slot.endTime : slot.endTime)}
                     </span>
                     <div className="mt-2">
                       <span className="text-xs font-black text-[#0A1E14]">৳{displayedSlotPrice(slot).toLocaleString()}</span>
+                      {isFixedBlock && <span className="mt-1 block text-[9px] font-semibold text-amber-700">Fixed total · full range only</span>}
                       {slot.pricingLabel && <span className="mt-1 text-[9px] font-semibold text-[#5A6A60]">{slot.pricingLabel}</span>}
                       <span className={`block text-[10px] font-semibold mt-1 uppercase ${
                         isPast ? 'text-slate-500' : isSelected ? 'text-[#6db31e]' : isAvail ? 'text-[#6db31e]' : isOwnedLockedSlot ? 'text-amber-600' : isLocked ? 'text-amber-600' : 'text-slate-500'
                       }`}>
-                        {isPast ? 'Time Passed' : hasStarted ? 'In Progress' : isOwnedLockedSlot ? 'Click to Unlock' : isSelected ? 'Selected' : isAvail ? 'Available' : isLocked ? 'Locked' : 'Booked'}
+                        {isPast ? 'Time Passed' : hasStarted ? 'In Progress' : isOwnedLockedSlot ? 'Click to Unlock' : isSelected ? 'Selected' : isAvail ? 'Available' : isLocked ? 'Locked' : 'Unavailable'}
                       </span>
                     </div>
                   </button>
@@ -1617,7 +1695,7 @@ export const TurfySlotHome: React.FC<TurfySlotHomeProps> = ({
                         {visibleSelectedBookingSlots.length} hour{visibleSelectedBookingSlots.length > 1 ? 's' : ''}
                       </span>
                       <span className="rounded-full bg-white/60 px-2 py-1 text-[#0A1E14]">
-                        ৳{visibleSelectedBookingSlots.reduce((sum, slot) => sum + displayedSlotPrice(slot), 0).toLocaleString()}
+                        ৳{displayedSelectedBookingPrice.toLocaleString()}
                       </span>
                     </div>
                   </div>

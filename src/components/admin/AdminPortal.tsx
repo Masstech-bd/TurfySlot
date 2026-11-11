@@ -437,7 +437,16 @@ export const AdminPortal: React.FC = () => {
   const [settingsSaveError, setSettingsSaveError] = useState('');
   const [featureFlagError, setFeatureFlagError] = useState('');
   const [updatingFeatureFlag, setUpdatingFeatureFlag] = useState<string | null>(null);
-  const [settingsSubTab, setSettingsSubTab] = useState<'commission' | 'features' | 'packages' | 'gateways' | 'email' | 'backups' | 'danger'>('commission');
+  const [settingsSubTab, setSettingsSubTab] = useState<'commission' | 'discovery' | 'features' | 'packages' | 'gateways' | 'email' | 'backups' | 'danger'>('commission');
+  const [heroSportsDraft, setHeroSportsDraft] = useState(settings.supportedSports);
+  const [heroLocationsDraft, setHeroLocationsDraft] = useState(settings.publicLocations || []);
+  const [newHeroSport, setNewHeroSport] = useState('');
+  const [newHeroArea, setNewHeroArea] = useState('');
+  const [newHeroCity, setNewHeroCity] = useState('');
+  const [discoverySaveMessage, setDiscoverySaveMessage] = useState('');
+  const [savingDiscoveryOptions, setSavingDiscoveryOptions] = useState(false);
+  useEffect(() => setHeroSportsDraft(settings.supportedSports), [settings.supportedSports]);
+  useEffect(() => setHeroLocationsDraft(settings.publicLocations || []), [settings.publicLocations]);
   const [backupBusyCategory, setBackupBusyCategory] = useState<'players' | 'owners' | 'admins' | null>(null);
   const [backupError, setBackupError] = useState('');
   const [backupMessage, setBackupMessage] = useState('');
@@ -1921,6 +1930,7 @@ export const AdminPortal: React.FC = () => {
             <div className="flex items-center gap-1.5 bg-white/[0.04] p-1.5 rounded-2xl border border-white/10 flex-wrap no-scrollbar">
               {[
                 { key: 'commission', label: 'Commission Setup' },
+                { key: 'discovery', label: 'Home Filters' },
                 { key: 'features', label: 'Features Setting' },
                 { key: 'packages', label: 'Packages' },
                 { key: 'gateways', label: 'Payment Gateways' },
@@ -1931,7 +1941,7 @@ export const AdminPortal: React.FC = () => {
                 <button
                   key={tab.key}
                   type="button"
-                  onClick={() => setSettingsSubTab(tab.key as 'commission' | 'features' | 'packages' | 'gateways' | 'email' | 'backups' | 'danger')}
+                  onClick={() => setSettingsSubTab(tab.key as 'commission' | 'discovery' | 'features' | 'packages' | 'gateways' | 'email' | 'backups' | 'danger')}
                   className={`px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${
                     settingsSubTab === tab.key
                       ? 'bg-[#C8FF5E] text-[#0A1E14] shadow-md shadow-[#C8FF5E]/20'
@@ -2073,6 +2083,90 @@ export const AdminPortal: React.FC = () => {
                     );
                   })}
                   {subscriptionOwners.length === 0 && <p className="py-5 text-center text-xs text-white/50">No subscription-model owners yet.</p>}
+                </div>
+              </section>
+            )}
+
+            {settingsSubTab === 'discovery' && (
+              <section className="max-w-4xl rounded-2xl border border-white/10 bg-[#0A1E14] p-6 shadow-lg space-y-5">
+                <div>
+                  <h3 className="text-sm font-bold text-white">Home-Page Hero Filters</h3>
+                  <p className="mt-1 text-[11px] text-white/60">Manage the Location and Sport choices shown in the public home-page hero.</p>
+                </div>
+
+                <div className="space-y-3">
+                  <h4 className="text-xs font-bold text-white">Sports</h4>
+                  <div className="flex flex-wrap gap-2">
+                    {heroSportsDraft.map((sport, index) => (
+                      <div key={`${sport}-${index}`} className="flex items-center gap-2 rounded-lg border border-white/10 bg-[#07130c] px-3 py-2">
+                        <button type="button" aria-label={`Move ${sport} up`} disabled={index === 0} onClick={() => setHeroSportsDraft((items) => items.map((item, itemIndex) => itemIndex === index ? items[index - 1] : itemIndex === index - 1 ? items[index] : item))} className="text-xs text-white/60 disabled:opacity-30">↑</button>
+                        <span className="text-xs text-white">{sport}</span>
+                        <button type="button" aria-label={`Move ${sport} down`} disabled={index === heroSportsDraft.length - 1} onClick={() => setHeroSportsDraft((items) => items.map((item, itemIndex) => itemIndex === index ? items[index + 1] : itemIndex === index + 1 ? items[index] : item))} className="text-xs text-white/60 disabled:opacity-30">↓</button>
+                        <button type="button" aria-label={`Remove ${sport}`} onClick={() => setHeroSportsDraft((items) => items.filter((_, itemIndex) => itemIndex !== index))} className="text-xs font-bold text-rose-300">×</button>
+                      </div>
+                    ))}
+                    {heroSportsDraft.length === 0 && <p className="text-xs text-white/50">No sports configured. Players will see “All Sports.”</p>}
+                  </div>
+                  <div className="flex gap-2">
+                    <input aria-label="New home-page sport" value={newHeroSport} onChange={(event) => setNewHeroSport(event.target.value)} maxLength={60} placeholder="Add sport" className="w-full max-w-sm rounded-lg border border-white/10 bg-[#07130c] px-3 py-2 text-xs text-white" />
+                    <button type="button" onClick={() => {
+                      const sport = newHeroSport.trim();
+                      if (sport && !heroSportsDraft.some((item) => item.toLocaleLowerCase() === sport.toLocaleLowerCase()) && heroSportsDraft.length < 50) {
+                        setHeroSportsDraft((items) => [...items, sport]);
+                        setNewHeroSport('');
+                        setDiscoverySaveMessage('');
+                      }
+                    }} className="rounded-lg border border-white/15 px-3 py-2 text-xs font-bold text-white">Add sport</button>
+                  </div>
+                </div>
+
+                <div className="space-y-3 border-t border-white/10 pt-4">
+                  <h4 className="text-xs font-bold text-white">Locations</h4>
+                  <div className="space-y-2">
+                    {heroLocationsDraft.map((location, index) => (
+                      <div key={`${location.area}|${location.city}|${index}`} className="grid grid-cols-1 items-center gap-2 rounded-lg border border-white/10 bg-[#07130c] p-2 sm:grid-cols-[1fr_1fr_auto_auto_auto]">
+                        <input aria-label={`Area for location ${index + 1}`} value={location.area} maxLength={60} onChange={(event) => setHeroLocationsDraft((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, area: event.target.value } : item))} placeholder="Area (optional)" className="rounded-lg border border-white/10 bg-[#0A1E14] px-2 py-2 text-xs text-white" />
+                        <input aria-label={`City for location ${index + 1}`} value={location.city} maxLength={60} onChange={(event) => setHeroLocationsDraft((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, city: event.target.value } : item))} placeholder="City (optional)" className="rounded-lg border border-white/10 bg-[#0A1E14] px-2 py-2 text-xs text-white" />
+                        <button type="button" aria-label="Move location up" disabled={index === 0} onClick={() => setHeroLocationsDraft((items) => items.map((item, itemIndex) => itemIndex === index ? items[index - 1] : itemIndex === index - 1 ? items[index] : item))} className="text-xs text-white/60 disabled:opacity-30">↑</button>
+                        <button type="button" aria-label="Move location down" disabled={index === heroLocationsDraft.length - 1} onClick={() => setHeroLocationsDraft((items) => items.map((item, itemIndex) => itemIndex === index ? items[index + 1] : itemIndex === index + 1 ? items[index] : item))} className="text-xs text-white/60 disabled:opacity-30">↓</button>
+                        <button type="button" aria-label="Remove location" onClick={() => setHeroLocationsDraft((items) => items.filter((_, itemIndex) => itemIndex !== index))} className="text-xs font-bold text-rose-300">Remove</button>
+                      </div>
+                    ))}
+                    {heroLocationsDraft.length === 0 && <p className="text-xs text-white/50">No locations configured. Players will see “All Locations.”</p>}
+                  </div>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_auto]">
+                    <input aria-label="New home-page area" value={newHeroArea} onChange={(event) => setNewHeroArea(event.target.value)} maxLength={60} placeholder="Area (optional)" className="rounded-lg border border-white/10 bg-[#07130c] px-3 py-2 text-xs text-white" />
+                    <input aria-label="New home-page city" value={newHeroCity} onChange={(event) => setNewHeroCity(event.target.value)} maxLength={60} placeholder="City (optional)" className="rounded-lg border border-white/10 bg-[#07130c] px-3 py-2 text-xs text-white" />
+                    <button type="button" onClick={() => {
+                      const location = { area: newHeroArea.trim(), city: newHeroCity.trim() };
+                      const duplicate = heroLocationsDraft.some((item) => item.area.toLocaleLowerCase() === location.area.toLocaleLowerCase() && item.city.toLocaleLowerCase() === location.city.toLocaleLowerCase());
+                      if ((location.area || location.city) && !duplicate && heroLocationsDraft.length < 50) {
+                        setHeroLocationsDraft((items) => [...items, location]);
+                        setNewHeroArea('');
+                        setNewHeroCity('');
+                        setDiscoverySaveMessage('');
+                      }
+                    }} className="rounded-lg border border-white/15 px-3 py-2 text-xs font-bold text-white">Add location</button>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3 border-t border-white/10 pt-4">
+                  <button type="button" disabled={savingDiscoveryOptions} onClick={async () => {
+                    setSavingDiscoveryOptions(true);
+                    setDiscoverySaveMessage('');
+                    try {
+                      await updatePlatformSettings({
+                        supportedSports: heroSportsDraft.map((sport) => sport.trim()),
+                        publicLocations: heroLocationsDraft.map((location) => ({ area: location.area.trim(), city: location.city.trim() })),
+                      });
+                      setDiscoverySaveMessage('Home-page filter options saved.');
+                    } catch (error) {
+                      setDiscoverySaveMessage(error instanceof Error ? error.message : 'Unable to save home-page filter options.');
+                    } finally {
+                      setSavingDiscoveryOptions(false);
+                    }
+                  }} className="rounded-lg bg-[#C8FF5E] px-3 py-2 text-xs font-bold text-[#0A1E14] disabled:opacity-60">{savingDiscoveryOptions ? 'Saving...' : 'Save filter options'}</button>
+                  {discoverySaveMessage && <p role="status" className="text-xs text-white/70">{discoverySaveMessage}</p>}
                 </div>
               </section>
             )}

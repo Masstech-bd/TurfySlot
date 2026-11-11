@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
+import { getDisplayedPricingSlots, getPricingBlockSlots } from '../../../database/pricing.js';
 import { Turf, Slot, Booking, PaymentMethod, PaymentStatus, StaffAssignment, TurfAddon, PricingRule } from '../../types';
 import {
   Building2,
@@ -256,6 +257,7 @@ export const OwnerPortal: React.FC = () => {
   const [pricingRuleStart, setPricingRuleStart] = useState('07:00');
   const [pricingRuleEnd, setPricingRuleEnd] = useState('08:00');
   const [pricingRulePrice, setPricingRulePrice] = useState(1200);
+  const [pricingRulePricingMode, setPricingRulePricingMode] = useState<'hourly' | 'fixed_total'>('hourly');
   const [newTurfSports, setNewTurfSports] = useState<string[]>(['Football']);
   const [newTurfAmenities, setNewTurfAmenities] = useState<string[]>(['Floodlights', 'Washroom']);
   const [customSportOptions, setCustomSportOptions] = useState<string[]>([]);
@@ -303,12 +305,18 @@ export const OwnerPortal: React.FC = () => {
     if (pricingRuleMode === 'date' && !pricingRuleDate) { showAppAlert('Choose the special pricing date.'); return null; }
     const label = pricingRuleLabel.trim();
     if (!label || label.length > 60) { showAppAlert('Enter a shift label with 1 to 60 characters.'); return null; }
-    if (pricingRuleEnd <= pricingRuleStart || !Number.isFinite(pricingRulePrice) || pricingRulePrice <= 0) { showAppAlert('Enter a valid time range and positive hourly price.'); return null; }
+    if (pricingRuleEnd <= pricingRuleStart || !Number.isFinite(pricingRulePrice) || pricingRulePrice <= 0) { showAppAlert('Enter a valid time range and positive price.'); return null; }
+    const [startHour, startMinute] = pricingRuleStart.split(':').map(Number);
+    const [endHour, endMinute] = pricingRuleEnd.split(':').map(Number);
+    if (pricingRulePricingMode === 'fixed_total' && ((endHour * 60 + endMinute - startHour * 60 - startMinute) % 60 !== 0)) {
+      showAppAlert('A fixed total range must contain a whole number of one-hour slots.');
+      return null;
+    }
     const overlaps = schedulePricingRules.some((rule) => (pricingRuleMode === 'date' ? rule.date === pricingRuleDate : !rule.date && rule.dayOfWeek === pricingRuleDay) && pricingRuleStart < rule.endTime && rule.startTime < pricingRuleEnd);
     if (overlaps) { showAppAlert('This time range overlaps another price rule for the same day.'); return null; }
     return {
       id: crypto.randomUUID(), ...(pricingRuleMode === 'date' ? { date: pricingRuleDate } : { dayOfWeek: pricingRuleDay }),
-      label, startTime: pricingRuleStart, endTime: pricingRuleEnd, pricePerHour: pricingRulePrice,
+      label, pricingMode: pricingRulePricingMode, startTime: pricingRuleStart, endTime: pricingRuleEnd, pricePerHour: pricingRulePrice,
     } satisfies PricingRule;
   };
   const addTurfPricingRule = () => {
@@ -416,7 +424,10 @@ export const OwnerPortal: React.FC = () => {
   }, [selectedScheduleTurf, scheduleDay]);
   useEffect(() => {
     if (!selectedScheduleTurf) { setSchedulePricingRules([]); return; }
-    setSchedulePricingRules((selectedScheduleTurf.pricingRules || []).map((rule) => ({ ...rule, id: rule.id || crypto.randomUUID(), label: rule.label || 'Shift' })));
+    setSchedulePricingRules((selectedScheduleTurf.pricingRules || []).map((rule) => ({
+      ...rule, id: rule.id || crypto.randomUUID(), label: rule.label || 'Shift',
+      pricingMode: rule.pricingMode || 'hourly',
+    })));
     setPricingRuleDraftDirty(false);
     setPricingMessage('');
   }, [selectedScheduleTurf?.id]);
@@ -485,9 +496,12 @@ export const OwnerPortal: React.FC = () => {
     blocked: selectedDateSlots.filter((slot) => slot.status === 'blocked' && !isSlotInPast(slot.date, slot.startTime)).length,
     past: selectedDateSlots.filter((slot) => isSlotInPast(slot.date, slot.startTime)).length,
   };
-  const availableSlotsForManual = slots.filter(
-    (s) => s.turfId === mbTurfId && s.date === mbDate && s.status === 'available' && !isSlotInPast(s.date, s.startTime)
-  );
+  const manualDateSlots = slots.filter((slot) => slot.turfId === mbTurfId && slot.date === mbDate);
+  const availableSlotsForManual = getDisplayedPricingSlots(manualDateSlots.filter((slot) => {
+    const blockSlots = getPricingBlockSlots(manualDateSlots, slot);
+    return blockSlots.length > 0 && blockSlots.every((blockSlot) =>
+      blockSlot.status === 'available' && !isSlotInPast(blockSlot.date, blockSlot.startTime));
+  }));
   useEffect(() => {
     if (mbTurfId && mbDate) void loadAvailability(mbTurfId, mbDate);
   }, [mbTurfId, mbDate, loadAvailability]);
@@ -1712,6 +1726,13 @@ export const OwnerPortal: React.FC = () => {
                 </label>
                 <datalist id="pricing-shift-labels"><option value="Morning" /><option value="Afternoon" /><option value="Evening" /><option value="Night" /><option value="Midnight" /></datalist>
                 <label className="space-y-1.5">
+                  <span className="block text-[11px] font-semibold text-white/65">Pricing type</span>
+                  <select aria-label="Pricing type" value={pricingRulePricingMode} onChange={(event) => { setPricingRulePricingMode(event.target.value as 'hourly' | 'fixed_total'); setPricingRuleDraftDirty(true); }} className="w-full rounded-xl border border-white/10 bg-[#07130c] px-3 py-2.5 text-xs text-white">
+                    <option value="hourly">Per hour</option>
+                    <option value="fixed_total">Fixed total for full range</option>
+                  </select>
+                </label>
+                <label className="space-y-1.5">
                   <span className="block text-[11px] font-semibold text-white/65">Start time</span>
                   <select aria-label="Pricing start time" value={pricingRuleStart} onChange={(event) => { setPricingRuleStart(event.target.value); setPricingRuleDraftDirty(true); }} className="w-full rounded-xl border border-white/10 bg-[#07130c] px-3 py-2.5 text-xs text-white">{slotTimeOptions.filter((time) => time !== '24:00').map((time) => <option key={time} value={time}>{formatScheduleTimeOption(time)}</option>)}</select>
                 </label>
@@ -1720,12 +1741,13 @@ export const OwnerPortal: React.FC = () => {
                   <select aria-label="Pricing end time" value={pricingRuleEnd} onChange={(event) => { setPricingRuleEnd(event.target.value); setPricingRuleDraftDirty(true); }} className="w-full rounded-xl border border-white/10 bg-[#07130c] px-3 py-2.5 text-xs text-white">{slotTimeOptions.filter((time) => time !== '00:00').map((time) => <option key={time} value={time}>{formatScheduleTimeOption(time)}</option>)}</select>
                 </label>
                 <label className="space-y-1.5">
-                  <span className="block text-[11px] font-semibold text-white/65">Price per hour (৳)</span>
-                  <input aria-label="Shift price per hour" type="number" min="1" step="0.01" value={pricingRulePrice} onChange={(event) => { setPricingRulePrice(Number(event.target.value)); setPricingRuleDraftDirty(true); }} className="w-full rounded-xl border border-white/10 bg-[#07130c] px-3 py-2.5 text-xs text-white" />
+                  <span className="block text-[11px] font-semibold text-white/65">{pricingRulePricingMode === 'hourly' ? 'Price per hour (৳)' : 'Total price for full range (৳)'}</span>
+                  <input aria-label={pricingRulePricingMode === 'hourly' ? 'Shift price per hour' : 'Fixed total range price'} type="number" min="1" step="0.01" value={pricingRulePrice} onChange={(event) => { setPricingRulePrice(Number(event.target.value)); setPricingRuleDraftDirty(true); }} className="w-full rounded-xl border border-white/10 bg-[#07130c] px-3 py-2.5 text-xs text-white" />
                 </label>
               </div>
+              {pricingRulePricingMode === 'fixed_total' && <p className="rounded-xl border border-[#C8FF5E]/20 bg-[#C8FF5E]/5 px-3 py-2.5 text-[11px] leading-relaxed text-white/70">Players and manual bookings must book the entire {formatBDTime(pricingRuleStart)}–{formatBDTime(pricingRuleEnd)} block. This price is charged once for the full range; partial or extended bookings are not allowed.</p>}
               {pricingRuleGroups.length === 0 && <p className="rounded-xl border border-amber-400/20 bg-amber-400/5 px-3 py-2.5 text-[11px] leading-relaxed text-amber-100/75">No pricing rules are added yet, so every slot uses the base rate. Configure a rule above and click <strong>Save pricing</strong> to save it directly. Use <strong>Add rule</strong> first when you want to configure multiple rules. Saving with no changes clears all overrides.</p>}
-              {pricingRuleGroups.length > 0 && <div className="space-y-2">{pricingRuleGroups.map((group) => <div key={`${group.schedule}-${group.label}`} className="rounded-xl border border-white/10 bg-[#07130c] p-3"><p className="mb-2 text-xs font-bold text-white">{group.label} <span className="font-normal capitalize text-white/50">· {group.schedule}</span></p><div className="flex flex-wrap gap-2">{group.rules.map((rule) => <span key={rule.id} className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-[#0A1E14] px-2.5 py-1.5 text-[11px] text-white/80">{formatBDTime(rule.startTime)}–{formatBDTime(rule.endTime)} · ৳{rule.pricePerHour}/hr<button type="button" aria-label={`Remove ${group.label} price range`} onClick={() => setSchedulePricingRules((rules) => rules.filter((item) => item.id !== rule.id))} className="font-bold text-rose-300">×</button></span>)}</div></div>)}</div>}
+              {pricingRuleGroups.length > 0 && <div className="space-y-2">{pricingRuleGroups.map((group) => <div key={`${group.schedule}-${group.label}`} className="rounded-xl border border-white/10 bg-[#07130c] p-3"><p className="mb-2 text-xs font-bold text-white">{group.label} <span className="font-normal capitalize text-white/50">· {group.schedule}</span></p><div className="flex flex-wrap gap-2">{group.rules.map((rule) => <span key={rule.id} className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-[#0A1E14] px-2.5 py-1.5 text-[11px] text-white/80">{formatBDTime(rule.startTime)}–{formatBDTime(rule.endTime)} · ৳{rule.pricePerHour}{rule.pricingMode === 'fixed_total' ? ' total' : '/hr'}<button type="button" aria-label={`Remove ${group.label} price range`} onClick={() => setSchedulePricingRules((rules) => rules.filter((item) => item.id !== rule.id))} className="font-bold text-rose-300">×</button></span>)}</div></div>)}</div>}
               <div className="flex flex-col gap-2 border-t border-white/10 pt-3 sm:flex-row sm:items-center sm:justify-between">
                 {pricingMessage && <p role="status" className={`text-xs ${pricingMessage.includes('saved') || pricingMessage.includes('cleared') ? 'text-[#C8FF5E]' : 'text-rose-300'}`}>{pricingMessage}</p>}
                 {!selectedScheduleTurf && <p className="text-xs text-amber-300">Select an owned turf before saving prices.</p>}
@@ -2443,7 +2465,7 @@ export const OwnerPortal: React.FC = () => {
                   <option value="">-- Choose Slot --</option>
                   {availableSlotsForManual.map((s) => (
                     <option key={s.id} value={s.id}>
-                      {s.date} | {formatBDTimeRange(s.startTime, s.endTime)} (৳{s.price})
+                      {s.date} | {formatBDTimeRange(s.startTime, s.fixedBlockEndTime || s.endTime)} (৳{s.price}{s.pricingMode === 'fixed_total' ? ' total' : '/hr'})
                     </option>
                   ))}
                 </select>

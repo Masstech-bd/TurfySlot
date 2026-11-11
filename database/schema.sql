@@ -113,6 +113,7 @@ CREATE TABLE IF NOT EXISTS turf_pricing_rules (
   start_time TIME NOT NULL,
   end_time TIME NOT NULL,
   price_per_hour NUMERIC(10,2) NOT NULL,
+  pricing_mode VARCHAR(20) NOT NULL DEFAULT 'hourly' CHECK (pricing_mode IN ('hourly', 'fixed_total')),
   CHECK ((day_of_week IS NOT NULL AND special_date IS NULL) OR (day_of_week IS NULL AND special_date IS NOT NULL)),
   created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );

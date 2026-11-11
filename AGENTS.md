@@ -135,6 +135,8 @@ old one is not progress.
 - Section 83. Admin-Managed Support Contacts and FAQs
 - Section 84. One-Time Restore of Role-Based JSON Backups
 - Section 85. Local Admin Password Reset
+- Section 86. Fixed-Total Turf Pricing Ranges
+- Section 87. Admin-Managed Home-Page Hero Filterss
 - Section 63. Automatic Booking Completion and Owner Override
 - Section 62. Explicit Weekly Availability Required for Public Turf Listings
 
@@ -5714,3 +5716,58 @@ The application must support PostgreSQL and MongoDB as alternative database prov
 - [ ] Missing accounts, non-admin accounts, wrong database names, and database errors fail explicitly without reporting success.
 - [ ] Automated tests verify admin scoping, password hashing, token-version increment, and no role/status changes.
 - [ ] Automated tests verify first-admin creation, existing-admin refusal, email collision rejection, and no unrelated database writes.
+
+
+## 86. Fixed-Total Turf Pricing Ranges
+
+### 86.1 Scope
+
+- Each owner-configured weekday pricing rule or exact-date pricing rule may use either `hourly` pricing or `fixed_total` pricing. Existing pricing rules without a saved mode remain `hourly` and retain their current behavior.
+- `hourly` pricing continues to apply the configured amount to each booked one-hour slot, as defined in Section 67.
+- `fixed_total` pricing treats the entire configured start/end range as one bookable block. Its configured amount is the total turf price for the exact full range, not an hourly rate. For example, a Wednesday 5:00–8:00 PM range priced at ৳4,000 costs ৳4,000 total for all three underlying one-hour slots.
+- A fixed-total block can be booked only from its exact configured start time through its exact configured end time. Partial bookings, bookings that extend beyond the block, and bookings that combine the block with adjacent hours are rejected.
+- The fixed-total option applies consistently to online player bookings and owner/staff manual bookings. All underlying one-hour slots are reserved atomically using the existing booking-slot mechanism, preserving double-booking protection.
+- A booking that overlaps any portion of an effective fixed-total range must exactly match that range. Pricing priority remains exact-date rule, then weekday rule, then base rate. Existing same-priority range overlap validation remains in effect.
+- The selected pricing mode and amount are set per rule in the owner pricing panel and persist through PostgreSQL and MongoDB. Existing records default to hourly mode without changing their historical or future prices.
+- For backward compatibility, the existing `pricePerHour`/`price_per_hour` value stores the configured amount; its interpretation is hourly or whole-range total according to `pricingMode`.
+- The fixed block amount is the booking's base turf amount. Existing platform fee, payment gateway fee, owner payout, payment, cancellation, refund, and audit rules apply to that amount without multiplying it by the number of underlying hours. A booking's saved amounts remain immutable after creation.
+- Availability and booking interfaces clearly distinguish per-hour rates from fixed-total block prices. The backend remains authoritative for block matching, slot reservation, and all calculated amounts.
+
+### 86.2 Definition of Done
+
+- [ ] Owners can choose hourly or fixed-total pricing independently for each weekly and exact-date pricing rule.
+- [ ] Existing rules without a pricing mode continue to behave as hourly rules, and existing hourly pricing remains unchanged.
+- [ ] Availability displays an exact fixed-total range as one selectable block with its total price; its constituent hours cannot be selected as partial bookings.
+- [ ] Online and manual booking requests for the exact fixed block reserve all constituent slots atomically and charge the fixed amount once.
+- [ ] Partial, extended, and combined bookings that overlap a fixed-total block are rejected server-side without reserving any slots.
+- [ ] Exact-date fixed pricing takes precedence over weekday pricing; weekday pricing takes precedence over the base rate, consistent with Section 67.
+- [ ] Platform/gateway fees, owner payout, payment confirmation, cancellation/refund, and saved booking totals use the fixed amount once.
+- [ ] Pricing mode and amount persist consistently in PostgreSQL and MongoDB; existing records migrate/default to hourly mode.
+- [ ] Automated tests cover legacy hourly pricing, fixed-total amount calculation, exact-block matching, partial/extended/combined rejection, manual booking parity, concurrency, and both database providers.
+- [ ] Existing one-hour and multi-hour hourly bookings, schedule editing, payment, cancellation/refund, and booking availability continue to pass their relevant tests.
+
+
+## 87. Admin-Managed Home-Page Hero Filters
+
+### 87.1 Scope
+
+- The home-page hero's Location and Sport selectors use platform-admin-managed options instead of hardcoded frontend choices.
+- Sport options use the existing `supported_sports` platform setting. The selector displays the saved sport names as provided by the admin, alongside its existing “All Sports” option.
+- Add an admin-managed list of public location options. Each option identifies a turf area, a city, or both, and the selector displays both where available. Selecting an option filters using the configured turf area and city fields.
+- The initial settings preserve the existing hero choices where possible: Football, Cricket, Futsal, Badminton, and the current Banani, Gulshan, Dhanmondi, Uttara, Mirpur, and Chattogram locations. Admins can update the lists at any time.
+- Admins can add, edit, remove, and reorder location entries and supported sports in the platform settings panel. Changes are validated and saved through the existing admin settings API and audit-log behavior.
+- Each list supports at most 50 unique entries; sport names and location values are limited to 60 characters. A location must contain a non-empty area or city.
+- A public read-only endpoint exposes only the hero filter options. It must not expose unrelated platform settings or sensitive configuration. The home page loads these options from that endpoint; it must not rely on hardcoded option lists.
+- This section changes only the home-page hero selectors. Other search/filter controls, turf sport and location data entry, search behavior beyond matching the selected hero location, and listing rules remain unchanged.
+- When no location options are configured, the hero still offers “All Locations.” When no sports are configured, it still offers “All Sports.”
+
+### 87.2 Definition of Done
+
+- [ ] Admins can add, edit, remove, and reorder supported sports and City/Area location options from platform settings.
+- [ ] Invalid, duplicate, or oversized option lists are rejected server-side and do not replace saved settings.
+- [ ] Public hero selectors load the current saved options and display “All Locations” and “All Sports.”
+- [ ] Selecting a location finds matching turfs by the configured area and city; selecting a sport filters by its configured sport value.
+- [ ] Admin changes persist across reloads and are reflected by the public hero without a frontend code change.
+- [ ] The public options endpoint exposes only the intended filter values; changes remain admin-authorized and audited.
+- [ ] Empty configurations render the corresponding “All” option without hardcoded fallback lists.
+- [ ] Existing hero search/date behavior, non-hero filters, and turf listing behavior remain unchanged.

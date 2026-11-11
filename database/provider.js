@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import dotenv from 'dotenv';
 import pg from 'pg';
 import { MongoClient } from 'mongodb';
-import { calculateBookingAmounts, findPricingRuleForSlot } from './pricing.js';
+import { addPricingToAvailability, calculateBaseAmountForSlots, calculateBookingAmounts } from './pricing.js';
 import { getMongoConnectionString } from './mongoConnection.js';
 
 dotenv.config();
@@ -927,7 +927,7 @@ export const listPublicTurfs = async (filters = {}) => {
            (SELECT id FROM cancellation_policies WHERE is_default=TRUE AND is_active=TRUE LIMIT 1))) AS effective_cancellation_policy,
         COALESCE((SELECT json_agg(json_build_object('id', tp.id, 'url', tp.url, 'sort_order', tp.sort_order)
           ORDER BY tp.sort_order) FROM turf_photos tp WHERE tp.turf_id = t.id), '[]'::json) AS photos,
-        COALESCE((SELECT json_agg(json_build_object('id', pr.id, 'label', pr.label, 'dayOfWeek', pr.day_of_week, 'date', pr.special_date,
+        COALESCE((SELECT json_agg(json_build_object('id', pr.id, 'label', pr.label, 'pricingMode', pr.pricing_mode, 'dayOfWeek', pr.day_of_week, 'date', pr.special_date,
           'startTime', pr.start_time, 'endTime', pr.end_time, 'pricePerHour', pr.price_per_hour))
           FROM turf_pricing_rules pr WHERE pr.turf_id = t.id), '[]'::json) AS pricing_rules
        FROM turfs t JOIN users u ON u.id = t.owner_id
@@ -995,7 +995,7 @@ export const getTurf = async (id, { publicOnly = true } = {}) => {
       `SELECT t.*, u.name AS owner_name, op.billing_model AS owner_billing_model,
         COALESCE((SELECT json_agg(json_build_object('id', tp.id, 'url', tp.url, 'sort_order', tp.sort_order)
           ORDER BY tp.sort_order) FROM turf_photos tp WHERE tp.turf_id = t.id), '[]'::json) AS photos,
-        COALESCE((SELECT json_agg(json_build_object('id', pr.id, 'label', pr.label, 'dayOfWeek', pr.day_of_week, 'date', pr.special_date,
+        COALESCE((SELECT json_agg(json_build_object('id', pr.id, 'label', pr.label, 'pricingMode', pr.pricing_mode, 'dayOfWeek', pr.day_of_week, 'date', pr.special_date,
           'startTime', pr.start_time, 'endTime', pr.end_time, 'pricePerHour', pr.price_per_hour))
           FROM turf_pricing_rules pr WHERE pr.turf_id = t.id), '[]'::json) AS pricing_rules
        FROM turfs t JOIN users u ON u.id = t.owner_id
@@ -1024,7 +1024,7 @@ export const listOwnerTurfs = async (ownerId) => {
       `SELECT t.*, u.name AS owner_name,
         COALESCE((SELECT json_agg(json_build_object('id', tp.id, 'url', tp.url, 'sort_order', tp.sort_order)
           ORDER BY tp.sort_order) FROM turf_photos tp WHERE tp.turf_id = t.id), '[]'::json) AS photos,
-        COALESCE((SELECT json_agg(json_build_object('id', pr.id, 'label', pr.label, 'dayOfWeek', pr.day_of_week, 'date', pr.special_date,
+        COALESCE((SELECT json_agg(json_build_object('id', pr.id, 'label', pr.label, 'pricingMode', pr.pricing_mode, 'dayOfWeek', pr.day_of_week, 'date', pr.special_date,
           'startTime', pr.start_time, 'endTime', pr.end_time, 'pricePerHour', pr.price_per_hour))
           FROM turf_pricing_rules pr WHERE pr.turf_id = t.id), '[]'::json) AS pricing_rules
        FROM turfs t JOIN users u ON u.id = t.owner_id WHERE t.owner_id = $1 ORDER BY t.created_at DESC`,
@@ -1159,9 +1159,9 @@ export const createTurf = async (ownerId, input) => {
     }
     for (const rule of input.pricingRules) {
       await client.query(
-        `INSERT INTO turf_pricing_rules (turf_id, day_of_week, special_date, label, start_time, end_time, price_per_hour)
-         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-        [id, rule.dayOfWeek ?? null, rule.date ?? null, rule.label, rule.startTime, rule.endTime, rule.pricePerHour]
+        `INSERT INTO turf_pricing_rules (turf_id, day_of_week, special_date, label, start_time, end_time, price_per_hour, pricing_mode)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [id, rule.dayOfWeek ?? null, rule.date ?? null, rule.label, rule.startTime, rule.endTime, rule.pricePerHour, rule.pricingMode || 'hourly']
       );
     }
     await client.query('COMMIT');
@@ -1183,11 +1183,6 @@ const configuredPercent = (value, fallback) => {
   const parsed = Number(typeof value === 'object' && value !== null && 'value' in value ? value.value : value);
   return Number.isFinite(parsed) && parsed >= 0 && parsed <= 100 ? parsed : fallback;
 };
-const priceForSlot = (basePrice, rules, date, startTime) => {
-  const rule = findPricingRuleForSlot(rules, date, startTime);
-  return Number(rule?.price_per_hour ?? rule?.pricePerHour ?? basePrice);
-};
-
 const dailySlotTimes = (date, operatingHours = {}) => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(new Date(`${date}T00:00:00Z`).getTime())) throw new Error('A valid booking date is required.');
   const dateRange = (Array.isArray(operatingHours?.dateRanges) ? operatingHours.dateRanges : [])
@@ -1322,7 +1317,7 @@ export const createManualBooking = async (input) => {
         client.query("SELECT key,value FROM platform_settings WHERE key IN ('platform_fee_rate','platform_fee_enabled')"),
       ]);
       const settingValues = Object.fromEntries(settings.rows.map((row) => [row.key, row.value]));
-      const baseAmount = roundMoney(slots.reduce((sum, slot) => sum + priceForSlot(turf.base_price_per_hour, rules.rows, input.date, slot.start_time), 0));
+      const baseAmount = calculateBaseAmountForSlots({ basePrice: turf.base_price_per_hour, rules: rules.rows, date: input.date, slots });
       const commissionAmount = 0;
       const platformFeeAmount = turf.billing_model === 'monthly_subscription' || settingValues.platform_fee_enabled === false
         ? 0 : roundMoney(baseAmount * configuredPercent(settingValues.platform_fee_rate, 5) / 100);
@@ -1377,7 +1372,7 @@ export const createManualBooking = async (input) => {
       for (let index = 0; index < slots.length; index += 1) if (slots[index].status !== 'available' || (index > 0 && minutesOf(slots[index].start_time) !== minutesOf(slots[index - 1].end_time))) throw new Error('Not enough consecutive availability from the selected start time.');
       const settingsRows = await mongoDb.collection('platform_settings').find({ key: { $in: ['platform_fee_rate', 'platform_fee_enabled'] } }, { session }).toArray();
       const settings = Object.fromEntries(settingsRows.map((row) => [row.key, row.value]));
-      const baseAmount = roundMoney(slots.reduce((sum, slot) => sum + priceForSlot(turf.base_price_per_hour, turf.pricing_rules || [], input.date, slot.start_time), 0));
+      const baseAmount = calculateBaseAmountForSlots({ basePrice: turf.base_price_per_hour, rules: turf.pricing_rules || [], date: input.date, slots });
       const commissionAmount = 0;
       const platformFeeAmount = profile.billing_model === 'monthly_subscription' || settings.platform_fee_enabled === false
         ? 0 : roundMoney(baseAmount * configuredPercent(settings.platform_fee_rate, 5) / 100);
@@ -1609,7 +1604,7 @@ export const createBookingHold = async ({ playerId, turfId, date, startTime, dur
       const settings = await client.query("SELECT key, value FROM platform_settings WHERE key IN ('platform_fee_rate','gateway_fee_rate','platform_fee_enabled','gateway_fee_enabled','booking_hold_minutes')");
       const settingValues = Object.fromEntries(settings.rows.map((row) => [row.key, row.value]));
       const bookingHoldMinutes = Number(settingValues.booking_hold_minutes ?? lockDuration);
-      const baseAmount = roundMoney(slots.reduce((sum, slot) => sum + priceForSlot(turf.base_price_per_hour, rules.rows, date, slot.start_time), 0));
+      const baseAmount = calculateBaseAmountForSlots({ basePrice: turf.base_price_per_hour, rules: rules.rows, date, slots });
       const platformRate = turf.billing_model === 'monthly_subscription' || settingValues.platform_fee_enabled === false
         ? 0 : configuredPercent(settingValues.platform_fee_rate, 5);
       const gatewayRate = settingValues.gateway_fee_enabled === false ? 0 : configuredPercent(settingValues.gateway_fee_rate, 2.5);
@@ -1688,7 +1683,7 @@ export const createBookingHold = async ({ playerId, turfId, date, startTime, dur
       const settingsDocs = await mongoDb.collection('platform_settings').find({ key: { $in: ['platform_fee_rate','gateway_fee_rate','platform_fee_enabled','gateway_fee_enabled','booking_hold_minutes'] } }, { session }).toArray();
       const settings = Object.fromEntries(settingsDocs.map((row) => [row.key, row.value]));
       const bookingHoldMinutes = Number(settings.booking_hold_minutes ?? lockDuration);
-      const baseAmount = roundMoney(slots.reduce((sum, slot) => sum + priceForSlot(turf.base_price_per_hour, turf.pricing_rules || [], date, slot.start_time), 0));
+      const baseAmount = calculateBaseAmountForSlots({ basePrice: turf.base_price_per_hour, rules: turf.pricing_rules || [], date, slots });
       const platformRate = turf.billing_model === 'monthly_subscription' || settings.platform_fee_enabled === false
         ? 0 : configuredPercent(settings.platform_fee_rate, 5);
       const gatewayRate = settings.gateway_fee_enabled === false ? 0 : configuredPercent(settings.gateway_fee_rate, 2.5);
@@ -4056,7 +4051,7 @@ export const updateOwnerTurf = async (ownerId, turfId, input) => {
     await client.query('DELETE FROM turf_photos WHERE turf_id=$1', [turfId]);
     await client.query('DELETE FROM turf_pricing_rules WHERE turf_id=$1', [turfId]);
     for (const [sortOrder, url] of input.photos.entries()) await client.query('INSERT INTO turf_photos (turf_id,url,sort_order) VALUES ($1,$2,$3)', [turfId, url, sortOrder]);
-    for (const rule of input.pricingRules) await client.query('INSERT INTO turf_pricing_rules (turf_id,day_of_week,special_date,label,start_time,end_time,price_per_hour) VALUES ($1,$2,$3,$4,$5,$6,$7)', [turfId, rule.dayOfWeek ?? null, rule.date ?? null, rule.label, rule.startTime, rule.endTime, rule.pricePerHour]);
+    for (const rule of input.pricingRules) await client.query('INSERT INTO turf_pricing_rules (turf_id,day_of_week,special_date,label,start_time,end_time,price_per_hour,pricing_mode) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)', [turfId, rule.dayOfWeek ?? null, rule.date ?? null, rule.label, rule.startTime, rule.endTime, rule.pricePerHour, rule.pricingMode || 'hourly']);
     await client.query('COMMIT');
     return { ...result.rows[0], photos: fields.photos, pricing_rules: fields.pricing_rules };
   } catch (error) { await client.query('ROLLBACK'); throw error; }
@@ -4113,12 +4108,13 @@ export const listAvailability = async (turfId, date) => {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
-      const turf = await client.query('SELECT operating_hours FROM turfs WHERE id=$1 AND status=\'active\'', [turfId]);
+      const turf = await client.query('SELECT operating_hours,base_price_per_hour FROM turfs WHERE id=$1 AND status=\'active\'', [turfId]);
       if (!turf.rowCount) { await client.query('ROLLBACK'); return []; }
       await insertDailySlotsPostgres(client, turfId, date, turf.rows[0].operating_hours);
-      const [result, activeBookings] = await Promise.all([
+      const [result, activeBookings, pricingRules] = await Promise.all([
         client.query('SELECT id,turf_id,date,start_time,end_time,status FROM slots WHERE turf_id=$1 AND date=$2 ORDER BY start_time', [turfId, date]),
         client.query("SELECT start_time,end_time FROM bookings WHERE turf_id=$1 AND booking_date=$2 AND status IN ('confirmed','checked_in','completed')", [turfId, date]),
+        client.query('SELECT * FROM turf_pricing_rules WHERE turf_id=$1 ORDER BY day_of_week,start_time', [turfId]),
       ]);
       const configured = new Set(dailySlotTimes(date, turf.rows[0].operating_hours).map((slot) => slot.start_time));
       const available = result.rows.filter((slot) => configured.has(String(slot.start_time).slice(0, 5)) || slot.status !== 'available' ||
@@ -4126,8 +4122,15 @@ export const listAvailability = async (turfId, date) => {
         .map((slot) => activeBookings.rows.some((booking) => minutesOf(slot.start_time) < minutesOf(booking.end_time) && minutesOf(slot.end_time) > minutesOf(booking.start_time))
         ? { ...slot, status: 'booked', locked_until: null, locked_by_user_id: null }
         : slot);
+      const pricedAvailability = addPricingToAvailability({
+        slots: available,
+        configuredSlots: dailySlotTimes(date, turf.rows[0].operating_hours),
+        rules: pricingRules.rows,
+        date,
+        basePrice: turf.rows[0].base_price_per_hour,
+      });
       await client.query('COMMIT');
-      return available;
+      return pricedAvailability;
     } catch (error) { await client.query('ROLLBACK'); throw error; }
     finally { client.release(); }
   }
@@ -4139,11 +4142,18 @@ export const listAvailability = async (turfId, date) => {
     mongoDb.collection('bookings').find({ turf_id: turfId, booking_date: date, status: { $in: ['confirmed', 'checked_in', 'completed'] } }, { projection: { start_time: 1, end_time: 1 } }).toArray(),
   ]);
   const configured = new Set(dailySlotTimes(date, turf.operating_hours).map((slot) => slot.start_time));
-  return slots.filter((slot) => configured.has(String(slot.start_time).slice(0, 5)) || slot.status !== 'available' ||
+  const visibleSlots = slots.filter((slot) => configured.has(String(slot.start_time).slice(0, 5)) || slot.status !== 'available' ||
     activeBookings.some((booking) => minutesOf(slot.start_time) < minutesOf(booking.end_time) && minutesOf(slot.end_time) > minutesOf(booking.start_time)))
     .map((slot) => activeBookings.some((booking) => minutesOf(slot.start_time) < minutesOf(booking.end_time) && minutesOf(slot.end_time) > minutesOf(booking.start_time))
     ? { ...slot, status: 'booked', locked_until: null, locked_by_user_id: null }
     : slot);
+  return addPricingToAvailability({
+    slots: visibleSlots,
+    configuredSlots: dailySlotTimes(date, turf.operating_hours),
+    rules: turf.pricing_rules || [],
+    date,
+    basePrice: turf.base_price_per_hour,
+  });
 };
 
 export const setSlotBlocked = async ({ turfId, date, startTime, blocked, actorId, actorRole }) => {

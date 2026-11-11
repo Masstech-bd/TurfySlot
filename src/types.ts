@@ -75,11 +75,12 @@ export interface TurfOwnerProfile {
 export interface PricingRule {
   id: string;
   label?: string;
+  pricingMode?: 'hourly' | 'fixed_total';
   dayOfWeek?: number; // 0 = Sunday, 6 = Saturday; absent for exact-date rules
   date?: string; // YYYY-MM-DD; takes priority over a recurring weekday rule
   startTime: string; // "18:00"
   endTime: string;   // "23:00"
-  pricePerHour: number;
+  pricePerHour: number; // Configured amount; interpretation follows pricingMode
 }
 
 export interface TurfAddon {
@@ -140,6 +141,11 @@ export interface Slot {
   endTime: string;   // "19:00"
   price: number;
   pricingLabel?: string;
+  pricingMode?: 'hourly' | 'fixed_total';
+  pricingRuleId?: string;
+  fixedPriceTotal?: number;
+  fixedBlockStartTime?: string;
+  fixedBlockEndTime?: string;
   status: SlotStatus;
   lockedUntil?: string;
   lockedByUserId?: string;
@@ -347,6 +353,7 @@ export interface PlatformSettings {
   minWithdrawalAmount: number;  // e.g. 1000 BDT
   defaultCancellationWindowHours: number; // e.g. 24
   supportedSports: string[];
+  publicLocations?: Array<{ area: string; city: string }>;
   enableOpenMatches?: boolean;
   enableTournaments?: boolean;
   featureFlags?: {

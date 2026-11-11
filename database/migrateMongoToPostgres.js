@@ -208,6 +208,7 @@ const run = async () => {
         start_time: rule.start_time ?? rule.startTime,
         end_time: rule.end_time ?? rule.endTime,
         price_per_hour: rule.price_per_hour ?? rule.pricePerHour,
+        pricing_mode: rule.pricing_mode ?? rule.pricingMode ?? 'hourly',
       });
     }
     delete turf.photos;

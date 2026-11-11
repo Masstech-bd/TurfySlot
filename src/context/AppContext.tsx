@@ -33,7 +33,7 @@ import {
 } from '../types';
 import { apiFetch, restoreSession, setAccessToken } from '../utils/apiClient';
 import { showAppAlert } from '../components/common/AppDialog';
-import { findPricingRuleForSlot } from '../../database/pricing.js';
+import { findPricingRuleForSlot, getPricingBlockSlots } from '../../database/pricing.js';
 
 const sumPaidWithdrawals = (rows: unknown): number => Array.isArray(rows)
   ? rows.reduce((sum: number, value) => {
@@ -299,6 +299,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     minWithdrawalAmount: 0,
     defaultCancellationWindowHours: 0,
     supportedSports: [],
+    publicLocations: [],
     enableOpenMatches: false,
     enableTournaments: false,
     featureFlags: {
@@ -622,6 +623,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           minWithdrawalAmount: Number(platformSettings.minimum_withdrawal_amount?.amount ?? platformSettings.minimum_withdrawal_amount ?? previous.minWithdrawalAmount),
           defaultCancellationWindowHours: Number(platformSettings.cancellation_window_hours ?? previous.defaultCancellationWindowHours),
           supportedSports: (platformSettings.supported_sports || previous.supportedSports) as string[],
+          publicLocations: (platformSettings.public_locations || previous.publicLocations || []) as PlatformSettings['publicLocations'],
           featuredPackages: (platformSettings.featured_packages || previous.featuredPackages) as PlatformSettings['featuredPackages'],
           paymentGateways: (platformSettings.payment_gateways || previous.paymentGateways) as PlatformSettings['paymentGateways'],
           featureFlags: platformFlags as PlatformSettings['featureFlags'],
@@ -830,11 +832,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const startTime = String(row.start_time ?? row.startTime ?? '').slice(0, 5);
         const dateString = String(row.date ?? date).slice(0, 10);
         const rule = findPricingRuleForSlot(turf?.pricingRules || [], dateString, startTime);
+        const pricingMode = String(row.pricing_mode ?? rule?.pricingMode ?? 'hourly') as Slot['pricingMode'];
         return {
           id: String(row.id), turfId: String(row.turf_id ?? row.turfId ?? turfId), date: dateString,
           startTime, endTime: String(row.end_time ?? row.endTime ?? '').slice(0, 5),
-          price: Number(rule?.pricePerHour ?? turf?.basePricePerHour ?? 0),
-          pricingLabel: rule?.label,
+          price: row.price != null ? Number(row.price) : Number(rule?.pricePerHour ?? turf?.basePricePerHour ?? 0),
+          pricingLabel: String(row.pricing_label ?? rule?.label ?? '') || undefined,
+          pricingMode,
+          pricingRuleId: String(row.pricing_rule_id ?? rule?.id ?? '') || undefined,
+          fixedPriceTotal: row.fixed_price_total == null ? undefined : Number(row.fixed_price_total),
+          fixedBlockStartTime: row.fixed_block_start_time ? String(row.fixed_block_start_time).slice(0, 5) : undefined,
+          fixedBlockEndTime: row.fixed_block_end_time ? String(row.fixed_block_end_time).slice(0, 5) : undefined,
           status: String(row.status || 'available') as Slot['status'],
           lockedUntil: row.locked_until ? String(row.locked_until) : undefined,
           lockedByUserId: row.locked_by_user_id ? String(row.locked_by_user_id) : undefined,
@@ -1150,20 +1158,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const slot = slots.find((item) => item.id === slotId);
     const turf = turfs.find((item) => item.id === turfId);
     if (!slot || !turf) return { booking: null, error: 'The selected turf or slot is no longer available. Refresh availability and try again.' };
+    const dateSlots = slots.filter((item) => item.turfId === turfId && item.date === slot.date);
+    const bookingSlots = getPricingBlockSlots(dateSlots, slot);
     try {
       const endpoint = currentUser.role === 'staff' ? '/api/staff/bookings/manual' : '/api/owner/bookings/manual';
       const response = await apiFetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
-        body: JSON.stringify({ turfId, date: slot.date, startTime: slot.startTime, durationHours: 1, customerName, customerPhone, paymentMethod, paymentStatus, paymentAmount, paymentReference: paymentReference || '', notes: notes || '' }),
+        body: JSON.stringify({ turfId, date: slot.date, startTime: slot.startTime, durationHours: bookingSlots.length, customerName, customerPhone, paymentMethod, paymentStatus, paymentAmount, paymentReference: paymentReference || '', notes: notes || '' }),
       });
       const result = await response.json();
       if (!response.ok || !result?.success) return { booking: null, error: result?.message || (response.status === 401 ? 'Your session has expired. Please sign in again and retry.' : 'The booking could not be saved. Refresh availability and try again.') };
       const row = result.data;
       const booking: Booking = {
         id: String(row.id), bookingNumber: String(row.booking_number), turfId, turfName: turf.name,
-        playerId: undefined, customerName, customerPhone, slotId, slotIds: [slotId], date: slot.date,
-        startTime: String(row.start_time).slice(0, 5), endTime: String(row.end_time).slice(0, 5), totalHours: 1,
+        playerId: undefined, customerName, customerPhone, slotId, slotIds: bookingSlots.map((item) => item.id), date: slot.date,
+        startTime: String(row.start_time).slice(0, 5), endTime: String(row.end_time).slice(0, 5), totalHours: bookingSlots.length,
         bookingSource: row.booking_source, status: row.status, baseAmount: Number(row.base_amount),
         commissionAmount: Number(row.commission_amount), platformFeeAmount: Number(row.platform_fee_amount),
         hasGatewayFee: false, gatewayFeeAmount: 0, totalPaid: Number(row.total_payable),
@@ -1670,6 +1680,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ['platformFeeEnabled', 'platform_fee_enabled'], ['gatewayFeeEnabled', 'gateway_fee_enabled'],
       ['showFeeBreakdown', 'show_fee_breakdown'], ['ownerBillingSwitchEnabled', 'owner_billing_switch_enabled'],
       ['defaultCancellationWindowHours', 'cancellation_window_hours'], ['supportedSports', 'supported_sports'],
+      ['publicLocations', 'public_locations'],
     ];
     const persisted: Partial<PlatformSettings> = {};
     for (const [field, key] of keys) {

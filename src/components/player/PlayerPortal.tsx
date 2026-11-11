@@ -3,6 +3,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { useApp } from '../../context/AppContext';
 import { Turf, Slot, Booking } from '../../types';
 import { formatBDDate, formatBDTimeRange, getBDDateString, getBDNow } from '../../utils/datetime';
+import { parseLocationFilter } from '../../utils/locationFilters';
 import {
   Search,
   MapPin,
@@ -50,7 +51,7 @@ import { TournamentsView } from '../tournaments/TournamentsView';
 import { TurfMap } from '../common/LazyTurfMap';
 import { ClickableDatePicker } from '../common/CustomSelect';
 import { apiFetch } from '../../utils/apiClient';
-import { calculateDisplayedTurfPrice } from '../../../database/pricing.js';
+import { calculateDisplayedTurfPrice, getDisplayedPricingSlots, getPricingBlockSlots } from '../../../database/pricing.js';
 
 import heroPlayerCleanImg from '../../assets/images/hero_player_clean_1788976334634.jpg';
 import cityTurfMapImg from '../../assets/images/city_turf_map_1788975628489.jpg';
@@ -375,20 +376,16 @@ export const PlayerPortal: React.FC = () => {
 
   // Filter Active Public Turfs
   const publicTurfs = turfs.filter((t) => t.status === 'active');
-  const sportsList = ['All', 'Football', 'Cricket', 'Futsal', 'Badminton'];
-  const uniqueAreas = Array.from(new Set(publicTurfs.map((t) => t.area)));
-  const areasList = ['All', ...uniqueAreas];
-
   const filteredTurfs = publicTurfs.filter((turf) => {
     const matchesSearch =
       turf.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       turf.area.toLowerCase().includes(searchQuery.toLowerCase()) ||
       turf.city.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesSport = selectedSport === 'All' || turf.sportTypes.includes(selectedSport);
-    const matchesArea =
-      selectedArea === 'All' ||
-      turf.area.toLowerCase() === selectedArea.toLowerCase() ||
-      turf.city.toLowerCase() === selectedArea.toLowerCase();
+    const location = selectedArea === 'All' ? null : parseLocationFilter(selectedArea);
+    const matchesArea = !location ||
+      ((!location.area || turf.area.toLowerCase() === location.area.toLowerCase()) &&
+        (!location.city || turf.city.toLowerCase() === location.city.toLowerCase()));
     return matchesSearch && matchesSport && matchesArea;
   });
 
@@ -414,7 +411,7 @@ export const PlayerPortal: React.FC = () => {
   });
 
   const turfSlotsForSelectedDate = selectedTurf
-    ? slots.filter((s) => s.turfId === selectedTurf.id && s.date === selectedDate)
+    ? getDisplayedPricingSlots(slots.filter((s) => s.turfId === selectedTurf.id && s.date === selectedDate))
     : [];
 
   const slotsByTurf = React.useMemo(() => {
@@ -494,6 +491,15 @@ export const PlayerPortal: React.FC = () => {
     }
 
     if (isCurrentlySelected) {
+      if (slot.pricingMode === 'fixed_total' || currentSelection.some((item) => item.pricingMode === 'fixed_total')) {
+        unlockSlots(currentSelection.map((item) => item.id));
+        setSelectedSlot(null);
+        setSelectedBookingSlots([]);
+        setBookingDurationHours(1);
+        setLockExpiryAt(null);
+        setLockTimerSeconds(bookingHoldSeconds);
+        return;
+      }
       const selectedIndex = currentSelection.findIndex((item) => item.id === slot.id);
       // Keep the remaining selection contiguous: removing the first slot
       // trims the front; removing any later slot trims it and everything after.
@@ -511,6 +517,36 @@ export const PlayerPortal: React.FC = () => {
         setLockExpiryAt(null);
         setLockTimerSeconds(bookingHoldSeconds);
       }
+      return;
+    }
+
+    const availableDateSlots = slotsByTurf[slot.turfId] || [];
+    if (slot.pricingMode === 'fixed_total') {
+      const blockSlots = getPricingBlockSlots(availableDateSlots, slot);
+      const expectedHours = (parseTimeToMinutes(slot.fixedBlockEndTime || slot.endTime) -
+        parseTimeToMinutes(slot.fixedBlockStartTime || slot.startTime)) / 60;
+      const validBlock = Number.isInteger(expectedHours) && expectedHours > 0 &&
+        blockSlots.length === expectedHours &&
+        blockSlots[0]?.startTime === slot.fixedBlockStartTime &&
+        blockSlots[blockSlots.length - 1]?.endTime === slot.fixedBlockEndTime &&
+        blockSlots.every((item) => item.status === 'available' && !isSlotExpired(item));
+      if (!validBlock) {
+        setBookingHoldError('This fixed-price range is not fully available. Choose another time.');
+        return;
+      }
+      if (currentSelection.length > 0) {
+        setSlotToReplaceSelection(slot);
+        return;
+      }
+      setSelectedSlot(blockSlots[0]);
+      setSelectedBookingSlots(blockSlots);
+      setBookingDurationHours(blockSlots.length);
+      setBookingHoldError('');
+      return;
+    }
+
+    if (currentSelection.some((item) => item.pricingMode === 'fixed_total')) {
+      setSlotToReplaceSelection(slot);
       return;
     }
 
@@ -685,7 +721,13 @@ export const PlayerPortal: React.FC = () => {
     gatewayRate: settings.gatewayFeeEnabled === false ? 0 : settings.gatewayFeeRate,
     showFeeBreakdown: settings.showFeeBreakdown !== false,
   });
-  const displayedSelectedBookingPrice = selectedBookingSlots.reduce((sum, slot) => sum + displayedSlotPrice(slot), 0);
+  const displayedSelectedBookingPrice = calculateDisplayedTurfPrice({
+    baseAmount: bookingBaseAmount,
+    platformRate: selectedTurf?.ownerBillingModel === 'monthly_subscription' || settings.platformFeeEnabled === false
+      ? 0 : settings.platformFeeRate,
+    gatewayRate: settings.gatewayFeeEnabled === false ? 0 : settings.gatewayFeeRate,
+    showFeeBreakdown: settings.showFeeBreakdown !== false,
+  });
 
   // Keep the authenticated Turfyslot panel open while the hosted gateway checkout runs separately.
   const handleStartGatewayCheckout = async () => {
@@ -1662,14 +1704,30 @@ export const PlayerPortal: React.FC = () => {
 
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                   {turfSlotsForSelectedDate.map((slot) => {
+                    const isFixedBlock = slot.pricingMode === 'fixed_total';
+                    const blockSlots = isFixedBlock ? getPricingBlockSlots(slotsByTurf[slot.turfId] || [], slot) : [slot];
+                    const expectedBlockHours = isFixedBlock
+                      ? (parseTimeToMinutes(slot.fixedBlockEndTime || slot.endTime) - parseTimeToMinutes(slot.fixedBlockStartTime || slot.startTime)) / 60
+                      : 1;
+                    const validFixedBlock = !isFixedBlock || (
+                      Number.isInteger(expectedBlockHours) && expectedBlockHours > 0 &&
+                      blockSlots.length === expectedBlockHours &&
+                      blockSlots[0]?.startTime === slot.fixedBlockStartTime &&
+                      blockSlots[blockSlots.length - 1]?.endTime === slot.fixedBlockEndTime
+                    );
                     const isExpired = isSlotExpired(slot);
-                    const isAvailable = slot.status === 'available' && !isExpired;
-                    const isLocked = slot.status === 'locked';
-                    const isOwnedLockedSlot = isLocked && slot.lockedByUserId === currentUser.id;
+                    const isAvailable = validFixedBlock &&
+                      (isFixedBlock ? blockSlots.every((item) => item.status === 'available' && !isSlotExpired(item)) : slot.status === 'available') &&
+                      !isExpired;
+                    const isLocked = isFixedBlock ? blockSlots.some((item) => item.status === 'locked') : slot.status === 'locked';
+                    const isOwnedLockedSlot = isFixedBlock
+                      ? blockSlots.length > 0 && blockSlots.every((item) => item.status === 'locked' && item.lockedByUserId === currentUser.id)
+                      : isLocked && slot.lockedByUserId === currentUser.id;
                     const isSelected = selectedBookingSlots.some((selected) => selected.id === slot.id);
-                    const isBooked = slot.status === 'booked';
-                    const isBlocked = slot.status === 'blocked';
+                    const isBooked = isFixedBlock ? blockSlots.some((item) => item.status === 'booked') : slot.status === 'booked';
+                    const isBlocked = !validFixedBlock || (isFixedBlock ? blockSlots.some((item) => item.status === 'blocked') : slot.status === 'blocked');
                     const isClickable = !isExpired && (isAvailable || isOwnedLockedSlot);
+                    const displayEndTime = isFixedBlock ? slot.fixedBlockEndTime || slot.endTime : slot.endTime;
 
                     return (
                       <button
@@ -1693,14 +1751,15 @@ export const PlayerPortal: React.FC = () => {
                         }`}
                       >
                         <div className="text-xs font-bold">
-                          {formatSlotRange(slot.startTime, slot.endTime)}
+                          {formatSlotRange(slot.startTime, displayEndTime)}
                         </div>
                         <div className="text-[11px] text-emerald-400 font-semibold mt-1">
                           ৳{displayedSlotPrice(slot).toLocaleString()}
                         </div>
+                        {isFixedBlock && <div className="text-[9px] font-semibold text-amber-300 mt-0.5">Fixed total · full range only</div>}
                         {slot.pricingLabel && <div className="text-[9px] font-semibold text-slate-400 mt-0.5">{slot.pricingLabel}</div>}
                         <div className="text-[9px] uppercase tracking-wider font-bold mt-1">
-                          {isExpired ? 'Time passed' : isSelected ? 'Selected' : isAvailable ? 'Select' : isOwnedLockedSlot ? 'Click to Unlock' : slot.status}
+                          {isExpired ? 'Time passed' : isSelected ? 'Selected' : isAvailable ? 'Select' : isOwnedLockedSlot ? 'Click to Unlock' : isBooked ? 'booked' : isBlocked ? 'blocked' : isLocked ? 'locked' : slot.status}
                         </div>
                       </button>
                     );
@@ -2337,7 +2396,9 @@ export const PlayerPortal: React.FC = () => {
               <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-amber-400/10 text-amber-300"><AlertCircle className="h-5 w-5" /></span>
               <div>
                 <h3 id="replace-slot-title" className="text-base font-bold">Choose a different time?</h3>
-                <p id="replace-slot-description" className="mt-2 text-sm leading-relaxed text-slate-300">This slot is not next to your current selection. Clear your selected slots and select this slot instead?</p>
+                <p id="replace-slot-description" className="mt-2 text-sm leading-relaxed text-slate-300">{slotToReplaceSelection.pricingMode === 'fixed_total' || selectedBookingSlots.some((item) => item.pricingMode === 'fixed_total')
+                  ? 'Fixed-total ranges must be booked alone as one complete block. Clear your current selection and choose this time instead?'
+                  : 'This slot is not next to your current selection. Clear your selected slots and select this slot instead?'}</p>
               </div>
             </div>
             <div className="mt-6 flex justify-end gap-3">
@@ -2346,9 +2407,12 @@ export const PlayerPortal: React.FC = () => {
                 const nextSlot = slotToReplaceSelection;
                 if (!nextSlot) return;
                 unlockSlots(selectedBookingSlots.map((item) => item.id));
-                setSelectedSlot(nextSlot);
-                setSelectedBookingSlots([nextSlot]);
-                setBookingDurationHours(1);
+                const nextSlots = nextSlot.pricingMode === 'fixed_total'
+                  ? getPricingBlockSlots(slotsByTurf[nextSlot.turfId] || [], nextSlot)
+                  : [nextSlot];
+                setSelectedSlot(nextSlots[0] || nextSlot);
+                setSelectedBookingSlots(nextSlots);
+                setBookingDurationHours(nextSlots.length || 1);
                 setSlotToReplaceSelection(null);
               }} className="rounded-xl bg-emerald-400 px-4 py-2.5 text-sm font-bold text-slate-950 transition hover:bg-emerald-300">Clear and select</button>
             </div>

@@ -1170,6 +1170,22 @@ app.post('/api/admin/withdrawals/:withdrawalId/decision', requireAuth, requireRo
   }
 });
 
+const defaultHeroSports = ['Football', 'Cricket', 'Futsal', 'Badminton'];
+const defaultHeroLocations = [
+  { area: 'Banani', city: 'Dhaka' },
+  { area: 'Gulshan', city: 'Dhaka' },
+  { area: 'Dhanmondi', city: 'Dhaka' },
+  { area: 'Uttara', city: 'Dhaka' },
+  { area: 'Mirpur', city: 'Dhaka' },
+  { area: '', city: 'Chattogram' },
+];
+
+const isValidPublicLocations = (value) => Array.isArray(value) && value.length <= 50 &&
+  value.every((item) => item && typeof item.area === 'string' && item.area.trim().length <= 60 &&
+    typeof item.city === 'string' && item.city.trim().length <= 60 &&
+    (item.area.trim().length > 0 || item.city.trim().length > 0)) &&
+  new Set(value.map((item) => `${item.area.trim().toLocaleLowerCase()}|${item.city.trim().toLocaleLowerCase()}`)).size === value.length;
+
 const adminSettingValidators = {
   public_api_base_url: (value) => Boolean(normalizePublicApiBaseUrl(value, { allowHttpLocalhost: process.env.NODE_ENV !== 'production' })),
   global_commission_rate: (value) => Number.isFinite(Number(value)) && Number(value) >= 0 && Number(value) <= 100,
@@ -1185,7 +1201,8 @@ const adminSettingValidators = {
   platform_fee_enabled: (value) => typeof value === 'boolean',
   gateway_fee_enabled: (value) => typeof value === 'boolean',
   show_fee_breakdown: (value) => typeof value === 'boolean',
-  supported_sports: (value) => Array.isArray(value) && value.length > 0 && value.length <= 50 && value.every((item) => typeof item === 'string' && item.trim().length > 0 && item.trim().length <= 60),
+  supported_sports: (value) => Array.isArray(value) && value.length <= 50 && value.every((item) => typeof item === 'string' && item.trim().length > 0 && item.trim().length <= 60) && new Set(value.map((item) => item.trim().toLocaleLowerCase())).size === value.length,
+  public_locations: isValidPublicLocations,
   featured_packages: (value) => Array.isArray(value) && value.length <= 20 && value.every((item) => item && typeof item.id === 'string' && item.id.length <= 100 && typeof item.name === 'string' && item.name.trim().length > 0 && item.name.length <= 100 && Number.isFinite(Number(item.price)) && Number(item.price) >= 0 && Number.isInteger(Number(item.durationDays)) && Number(item.durationDays) > 0 && Number.isInteger(Number(item.priority)) && Number(item.priority) > 0 && typeof item.description === 'string' && item.description.length <= 500) && new Set(value.map((item) => item.id)).size === value.length,
 };
 
@@ -1356,9 +1373,27 @@ app.get('/api/public/support-settings', async (_req, res) => {
   }
 });
 
+app.get('/api/public/hero-filter-options', async (_req, res) => {
+  try {
+    const settings = await readAdminSettings();
+    res.json({
+      success: true,
+      data: {
+        supportedSports: Array.isArray(settings.supported_sports) ? settings.supported_sports : defaultHeroSports,
+        locations: Array.isArray(settings.public_locations) ? settings.public_locations : defaultHeroLocations,
+      },
+    });
+  } catch (error) {
+    console.error('Public hero filter options load failed:', error.message);
+    res.status(503).json({ success: false, message: 'Home-page filter options are temporarily unavailable.' });
+  }
+});
+
 app.get('/api/admin/settings', requireAuth, requireRole('admin'), async (req, res) => {
   try {
     const settings = await readAdminSettings();
+    settings.supported_sports = Array.isArray(settings.supported_sports) ? settings.supported_sports : defaultHeroSports;
+    settings.public_locations = Array.isArray(settings.public_locations) ? settings.public_locations : defaultHeroLocations;
     delete settings.smtp_configs;
     delete settings.sslcommerz_config;
     delete settings.shurjopay_config;
@@ -1609,8 +1644,12 @@ app.put('/api/admin/settings/:key', requireAuth, requireRole('admin'), async (re
     const booleanKeys = ['platform_fee_enabled', 'gateway_fee_enabled', 'show_fee_breakdown', 'owner_billing_switch_enabled', 'booking_auto_checkin_enabled', 'booking_auto_complete_enabled'];
     const value = req.params.key === 'public_api_base_url'
       ? normalizePublicApiBaseUrl(req.body.value, { allowHttpLocalhost: process.env.NODE_ENV !== 'production' })
-      : booleanKeys.includes(req.params.key) || ['supported_sports', 'minimum_withdrawal_amount'].includes(req.params.key)
-      ? req.body.value : Number(req.body.value);
+      : req.params.key === 'supported_sports'
+        ? req.body.value.map((sport) => sport.trim())
+        : req.params.key === 'public_locations'
+          ? req.body.value.map((location) => ({ area: location.area.trim(), city: location.city.trim() }))
+          : booleanKeys.includes(req.params.key) || req.params.key === 'minimum_withdrawal_amount'
+            ? req.body.value : Number(req.body.value);
     res.json({ success: true, data: { key: req.params.key, value: await writeAdminSetting({ key: req.params.key, value, adminId: req.user.id }) } });
   } catch (error) {
     console.error('Admin platform setting update failed:', error.message);
@@ -2350,17 +2389,26 @@ const normalizeTurfInput = (body) => {
   const validatedRules = [];
   for (const rule of pricingRules) {
     const label = String(rule.label || 'Shift').trim();
+    const pricingMode = String(rule.pricingMode ?? rule.pricing_mode ?? 'hourly');
     const isSpecialDate = rule.date != null && String(rule.date).trim() !== '';
     const hasWeekday = rule.dayOfWeek != null && String(rule.dayOfWeek).trim() !== '';
     const date = isSpecialDate ? String(rule.date).trim() : null;
     const dateIsValid = !isSpecialDate || (/^\d{4}-\d{2}-\d{2}$/.test(date) && !Number.isNaN(new Date(`${date}T00:00:00Z`).getTime()) && new Date(`${date}T00:00:00Z`).toISOString().slice(0, 10) === date);
     const timeIsValid = /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(String(rule.startTime)) && (/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(String(rule.endTime)) || String(rule.endTime) === '24:00');
     const dayOfWeek = Number(rule.dayOfWeek);
+    const [startHour, startMinute] = String(rule.startTime).split(':').map(Number);
+    const [endHour, endMinute] = String(rule.endTime).split(':').map(Number);
+    const rangeMinutes = endHour * 60 + endMinute - (startHour * 60 + startMinute);
+    const fixedRangeIsValid = pricingMode !== 'fixed_total' || (rangeMinutes > 0 && rangeMinutes % 60 === 0);
+    if (pricingMode === 'fixed_total' && timeIsValid && !fixedRangeIsValid) {
+      return { error: 'A fixed-total pricing range must contain a whole number of one-hour slots.' };
+    }
     if (isSpecialDate === hasWeekday || (!isSpecialDate && (!Number.isInteger(dayOfWeek) || dayOfWeek < 0 || dayOfWeek > 6)) || !dateIsValid || !timeIsValid ||
-        String(rule.endTime) <= String(rule.startTime) || !label || label.length > 60 || !Number.isFinite(Number(rule.pricePerHour)) || Number(rule.pricePerHour) <= 0) {
+        String(rule.endTime) <= String(rule.startTime) || !['hourly', 'fixed_total'].includes(pricingMode) || !fixedRangeIsValid ||
+        !label || label.length > 60 || !Number.isFinite(Number(rule.pricePerHour)) || Number(rule.pricePerHour) <= 0) {
       return { error: 'Every pricing override must have a valid weekday or exact date, a positive time range, and a positive price.' };
     }
-    validatedRules.push({ id: crypto.randomUUID(), label, dayOfWeek: isSpecialDate ? null : dayOfWeek, date, startTime: String(rule.startTime), endTime: String(rule.endTime), pricePerHour: Number(rule.pricePerHour) });
+    validatedRules.push({ id: crypto.randomUUID(), label, pricingMode, dayOfWeek: isSpecialDate ? null : dayOfWeek, date, startTime: String(rule.startTime), endTime: String(rule.endTime), pricePerHour: Number(rule.pricePerHour) });
   }
   for (let index = 0; index < validatedRules.length; index += 1) {
     const rule = validatedRules[index];
