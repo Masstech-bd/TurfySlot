@@ -129,8 +129,19 @@ export const PlayerPortal: React.FC = () => {
     settings,
   } = useApp();
 
-  const activeTab = playerActiveTab;
-  const setActiveTab = setPlayerActiveTab;
+  const activeTab = playerActiveTab === 'squads' && !settings.featureFlags?.squad_enabled
+    ? 'explore'
+    : playerActiveTab === 'tournaments' && !settings.featureFlags?.tournament_enabled
+      ? 'explore'
+      : playerActiveTab;
+  const setActiveTab = (tab: typeof playerActiveTab) => {
+    if ((tab === 'squads' && !settings.featureFlags?.squad_enabled)
+      || (tab === 'tournaments' && !settings.featureFlags?.tournament_enabled)) {
+      setPlayerActiveTab('explore');
+      return;
+    }
+    setPlayerActiveTab(tab);
+  };
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedSport, setSelectedSport] = useState<string>('All');
   const [selectedArea, setSelectedArea] = useState<string>('All');
@@ -870,20 +881,20 @@ export const PlayerPortal: React.FC = () => {
               <Ticket className="w-3.5 h-3.5" />
               <span>My Bookings & Passes ({myBookings.length})</span>
             </button>
-            <button
+            {settings.featureFlags?.squad_enabled && <button
               onClick={() => setActiveTab('squads')}
               className="px-4 py-2 rounded-xl text-xs font-bold text-white/70 hover:text-white hover:bg-white/[0.06] transition-all cursor-pointer flex items-center gap-2"
             >
               <Users className="w-3.5 h-3.5" />
               <span>Squad Finder</span>
-            </button>
-            <button
+            </button>}
+            {settings.featureFlags?.tournament_enabled && <button
               onClick={() => setActiveTab('tournaments')}
               className="px-4 py-2 rounded-xl text-xs font-bold text-white/70 hover:text-white hover:bg-white/[0.06] transition-all cursor-pointer flex items-center gap-2"
             >
               <Trophy className="w-3.5 h-3.5" />
               <span>Tournaments</span>
-            </button>
+            </button>}
             <button
               onClick={() => setActiveTab('favorites')}
               className="px-4 py-2 rounded-xl text-xs font-bold text-white/70 hover:text-white hover:bg-white/[0.06] transition-all cursor-pointer flex items-center gap-2"
@@ -1018,7 +1029,7 @@ export const PlayerPortal: React.FC = () => {
                         </button>
                       )}
 
-                      {isConfirmed && b.cancellationRequestStatus !== 'pending' && (
+                      {settings.featureFlags?.squad_enabled && isConfirmed && b.cancellationRequestStatus !== 'pending' && (
                         <button
                           onClick={() => setActiveTab('squads')}
                           className="px-3 py-2 bg-white/[0.08] hover:bg-white/[0.14] text-[#C8FF5E] border border-[#C8FF5E]/30 text-xs font-bold rounded-xl flex items-center gap-1.5 transition-all cursor-pointer"
@@ -1134,20 +1145,20 @@ export const PlayerPortal: React.FC = () => {
               <Ticket className="w-3.5 h-3.5" />
               <span>My Bookings & Passes ({myBookings.length})</span>
             </button>
-            <button
+            {settings.featureFlags?.squad_enabled && <button
               onClick={() => setActiveTab('squads')}
               className="px-4 py-2 rounded-xl text-xs font-bold text-white/70 hover:text-white hover:bg-white/[0.06] transition-all cursor-pointer flex items-center gap-2"
             >
               <Users className="w-3.5 h-3.5" />
               <span>Squad Finder</span>
-            </button>
-            <button
+            </button>}
+            {settings.featureFlags?.tournament_enabled && <button
               onClick={() => setActiveTab('tournaments')}
               className="px-4 py-2 rounded-xl text-xs font-bold text-white/70 hover:text-white hover:bg-white/[0.06] transition-all cursor-pointer flex items-center gap-2"
             >
               <Trophy className="w-3.5 h-3.5" />
               <span>Tournaments</span>
-            </button>
+            </button>}
             <button
               onClick={() => setActiveTab('favorites')}
               className="px-4 py-2 rounded-xl text-xs font-bold bg-[#C8FF5E] text-[#0A1E14] shadow-md shadow-[#C8FF5E]/20 transition-all cursor-pointer flex items-center gap-2"
@@ -1314,20 +1325,20 @@ export const PlayerPortal: React.FC = () => {
                 <Ticket className="w-3.5 h-3.5" />
                 <span>My Bookings & Passes ({myBookings.length})</span>
               </button>
-              <button
+              {settings.featureFlags?.squad_enabled && <button
                 onClick={() => setActiveTab('squads')}
                 className="px-4 py-2 rounded-xl text-xs font-bold bg-[#C8FF5E] text-[#0A1E14] shadow-md shadow-[#C8FF5E]/20 transition-all cursor-pointer flex items-center gap-2"
               >
                 <Users className="w-3.5 h-3.5" />
                 <span>Squad Finder</span>
-              </button>
-              <button
+              </button>}
+              {settings.featureFlags?.tournament_enabled && <button
                 onClick={() => setActiveTab('tournaments')}
                 className="px-4 py-2 rounded-xl text-xs font-bold text-white/70 hover:text-white hover:bg-white/[0.06] transition-all cursor-pointer flex items-center gap-2"
               >
                 <Trophy className="w-3.5 h-3.5" />
                 <span>Tournaments</span>
-              </button>
+              </button>}
               <button
                 onClick={() => setActiveTab('favorites')}
                 className="px-4 py-2 rounded-xl text-xs font-bold text-white/70 hover:text-white hover:bg-white/[0.06] transition-all cursor-pointer flex items-center gap-2"
@@ -1442,20 +1453,20 @@ export const PlayerPortal: React.FC = () => {
                 <Ticket className="w-3.5 h-3.5" />
                 <span>My Bookings & Passes ({myBookings.length})</span>
               </button>
-              <button
+              {settings.featureFlags?.squad_enabled && <button
                 onClick={() => setActiveTab('squads')}
                 className="px-4 py-2 rounded-xl text-xs font-bold text-white/70 hover:text-white hover:bg-white/[0.06] transition-all cursor-pointer flex items-center gap-2"
               >
                 <Users className="w-3.5 h-3.5" />
                 <span>Squad Finder</span>
-              </button>
-              <button
+              </button>}
+              {settings.featureFlags?.tournament_enabled && <button
                 onClick={() => setActiveTab('tournaments')}
                 className="px-4 py-2 rounded-xl text-xs font-bold bg-[#C8FF5E] text-[#0A1E14] shadow-md shadow-[#C8FF5E]/20 transition-all cursor-pointer flex items-center gap-2"
               >
                 <Trophy className="w-3.5 h-3.5" />
                 <span>Tournaments</span>
-              </button>
+              </button>}
               <button
                 onClick={() => setActiveTab('favorites')}
                 className="px-4 py-2 rounded-xl text-xs font-bold text-white/70 hover:text-white hover:bg-white/[0.06] transition-all cursor-pointer flex items-center gap-2"
