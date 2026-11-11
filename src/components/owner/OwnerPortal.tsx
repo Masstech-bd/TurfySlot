@@ -31,13 +31,15 @@ import { formatBDDate, formatBDTime, formatBDTimeRange, getBDDateString, getBDNo
 import { apiFetch } from '../../utils/apiClient';
 
 type ConfiguredSlotTime = { startTime: string; endTime: string };
-type BulkTimeRange = ConfiguredSlotTime;
+type BulkTimeRange = ConfiguredSlotTime & { id: string };
 
 const weekdayKeys = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 const timeToMinutes = (time: string) => {
   const [hour, minute] = time.split(':').map(Number);
   return hour * 60 + minute;
 };
+const formatScheduleTimeOption = (time: string) =>
+  time === '24:00' ? '24:00 (midnight, end of day)' : `${time} (${formatBDTime(time)})`;
 const makeSlotsFromRanges = (ranges: BulkTimeRange[]): ConfiguredSlotTime[] | null => {
   const slots: ConfiguredSlotTime[] = [];
   for (const range of ranges) {
@@ -388,7 +390,9 @@ export const OwnerPortal: React.FC = () => {
   const [bulkWeekdays, setBulkWeekdays] = useState<string[]>(weekdayKeys);
   const [bulkStartDate, setBulkStartDate] = useState(slotDate);
   const [bulkEndDate, setBulkEndDate] = useState(slotDate);
-  const [bulkTimeRanges, setBulkTimeRanges] = useState<BulkTimeRange[]>([{ startTime: '07:00', endTime: '11:00' }]);
+  const [bulkTimeRanges, setBulkTimeRanges] = useState<BulkTimeRange[]>(() => [
+    { id: crypto.randomUUID(), startTime: '07:00', endTime: '11:00' },
+  ]);
   const [bulkScheduleMessage, setBulkScheduleMessage] = useState('');
   const [pricingMessage, setPricingMessage] = useState('');
   const [isScheduleExpanded, setIsScheduleExpanded] = useState(false);
@@ -403,6 +407,9 @@ export const OwnerPortal: React.FC = () => {
     const minutes = index * 30;
     return `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
   }).concat('24:00');
+  const sortedBulkTimeRanges = [...bulkTimeRanges].sort((a, b) =>
+    a.startTime.localeCompare(b.startTime) || a.endTime.localeCompare(b.endTime)
+  );
   useEffect(() => {
     if (!selectedScheduleTurf) { setScheduleSlots([]); setSchedulePricingRules([]); return; }
     setScheduleSlots(weekdaySlotSchedule(selectedScheduleTurf, scheduleDay));
@@ -1569,11 +1576,11 @@ export const OwnerPortal: React.FC = () => {
                     {scheduleSlots.map((slot, index) => (
                       <div key={`${index}-${slot.startTime}`} className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto] items-center gap-2 rounded-xl border border-white/10 bg-[#07130c] p-2.5">
                         <select aria-label="Slot start time" value={slot.startTime} onChange={(event) => setScheduleSlots((previous) => previous.map((item, itemIndex) => itemIndex === index ? { ...item, startTime: event.target.value } : item).sort((a, b) => a.startTime.localeCompare(b.startTime)))} className="min-w-0 rounded-lg border border-white/10 bg-[#0A1E14] px-2 py-2 text-xs text-white">
-                          {slotTimeOptions.slice(0, -1).map((time) => <option key={time} value={time}>{formatBDTime(time)}</option>)}
+                          {slotTimeOptions.slice(0, -1).map((time) => <option key={time} value={time}>{formatScheduleTimeOption(time)}</option>)}
                         </select>
                         <span className="text-[10px] text-white/40">to</span>
                         <select aria-label="Slot end time" value={slot.endTime} onChange={(event) => setScheduleSlots((previous) => previous.map((item, itemIndex) => itemIndex === index ? { ...item, endTime: event.target.value } : item))} className="min-w-0 rounded-lg border border-white/10 bg-[#0A1E14] px-2 py-2 text-xs text-white">
-                          {slotTimeOptions.map((time) => <option key={time} value={time}>{formatBDTime(time)}</option>)}
+                          {slotTimeOptions.map((time) => <option key={time} value={time}>{formatScheduleTimeOption(time)}</option>)}
                         </select>
                         <button type="button" aria-label="Remove slot" onClick={() => setScheduleSlots((previous) => previous.filter((_, itemIndex) => itemIndex !== index))} className="rounded-lg p-2 text-white/50 hover:bg-rose-500/10 hover:text-rose-300"><Trash2 className="h-4 w-4" /></button>
                       </div>
@@ -1638,23 +1645,23 @@ export const OwnerPortal: React.FC = () => {
               <div className="space-y-2">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-[11px] font-semibold text-white/65">Daily time ranges</span>
-                  <button type="button" onClick={() => setBulkTimeRanges((previous) => [...previous, { startTime: '17:00', endTime: '21:00' }])} className="inline-flex items-center gap-1 rounded-lg border border-[#C8FF5E]/30 px-2.5 py-1.5 text-[10px] font-bold text-[#C8FF5E] hover:bg-[#C8FF5E]/10">
+                  <button type="button" onClick={() => setBulkTimeRanges((previous) => [...previous, { id: crypto.randomUUID(), startTime: '17:00', endTime: '21:00' }])} className="inline-flex items-center gap-1 rounded-lg border border-[#C8FF5E]/30 px-2.5 py-1.5 text-[10px] font-bold text-[#C8FF5E] hover:bg-[#C8FF5E]/10">
                     <Plus className="h-3 w-3" /> Add range
                   </button>
                 </div>
-                {bulkTimeRanges.map((range, index) => (
-                  <div key={index} className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto] items-center gap-2 rounded-xl border border-white/10 bg-[#07130c] p-2.5">
-                    <select aria-label={`Bulk range ${index + 1} start time`} value={range.startTime} onChange={(event) => setBulkTimeRanges((previous) => previous.map((item, itemIndex) => itemIndex === index ? { ...item, startTime: event.target.value } : item))} className="min-w-0 rounded-lg border border-white/10 bg-[#0A1E14] px-2 py-2 text-xs text-white">
-                      {slotTimeOptions.slice(0, -1).map((time) => <option key={time} value={time}>{formatBDTime(time)}</option>)}
+                {sortedBulkTimeRanges.map((range, index) => (
+                  <div key={range.id} className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto] items-center gap-2 rounded-xl border border-white/10 bg-[#07130c] p-2.5">
+                    <select aria-label={`Bulk range ${index + 1} start time`} value={range.startTime} onChange={(event) => setBulkTimeRanges((previous) => previous.map((item) => item.id === range.id ? { ...item, startTime: event.target.value } : item))} className="min-w-0 rounded-lg border border-white/10 bg-[#0A1E14] px-2 py-2 text-xs text-white">
+                      {slotTimeOptions.slice(0, -1).map((time) => <option key={time} value={time}>{formatScheduleTimeOption(time)}</option>)}
                     </select>
                     <span className="text-[10px] text-white/40">to</span>
-                    <select aria-label={`Bulk range ${index + 1} end time`} value={range.endTime} onChange={(event) => setBulkTimeRanges((previous) => previous.map((item, itemIndex) => itemIndex === index ? { ...item, endTime: event.target.value } : item))} className="min-w-0 rounded-lg border border-white/10 bg-[#0A1E14] px-2 py-2 text-xs text-white">
-                      {slotTimeOptions.map((time) => <option key={time} value={time}>{formatBDTime(time)}</option>)}
+                    <select aria-label={`Bulk range ${index + 1} end time`} value={range.endTime} onChange={(event) => setBulkTimeRanges((previous) => previous.map((item) => item.id === range.id ? { ...item, endTime: event.target.value } : item))} className="min-w-0 rounded-lg border border-white/10 bg-[#0A1E14] px-2 py-2 text-xs text-white">
+                      {slotTimeOptions.map((time) => <option key={time} value={time}>{formatScheduleTimeOption(time)}</option>)}
                     </select>
-                    <button type="button" aria-label={`Remove bulk range ${index + 1}`} disabled={bulkTimeRanges.length === 1} onClick={() => setBulkTimeRanges((previous) => previous.filter((_, itemIndex) => itemIndex !== index))} className="rounded-lg p-2 text-white/50 hover:bg-rose-500/10 hover:text-rose-300 disabled:opacity-30"><Trash2 className="h-4 w-4" /></button>
+                    <button type="button" aria-label={`Remove bulk range ${index + 1}`} disabled={bulkTimeRanges.length === 1} onClick={() => setBulkTimeRanges((previous) => previous.filter((item) => item.id !== range.id))} className="rounded-lg p-2 text-white/50 hover:bg-rose-500/10 hover:text-rose-300 disabled:opacity-30"><Trash2 className="h-4 w-4" /></button>
                   </div>
                 ))}
-                <p className="text-[10px] text-white/45">Each range generates consecutive one-hour slots. Use separate ranges for breaks; ranges must not overlap.</p>
+                <p className="text-[10px] text-white/45">Times are ordered in 24-hour format; for example, 17:00 is 5:00 PM. Ranges are sorted by start time. Each range generates consecutive one-hour slots; use separate, non-overlapping ranges for breaks.</p>
               </div>
 
               {selectedScheduleTurf?.operatingHours.dateRanges?.length ? (
@@ -1706,11 +1713,11 @@ export const OwnerPortal: React.FC = () => {
                 <datalist id="pricing-shift-labels"><option value="Morning" /><option value="Afternoon" /><option value="Evening" /><option value="Night" /><option value="Midnight" /></datalist>
                 <label className="space-y-1.5">
                   <span className="block text-[11px] font-semibold text-white/65">Start time</span>
-                  <select aria-label="Pricing start time" value={pricingRuleStart} onChange={(event) => { setPricingRuleStart(event.target.value); setPricingRuleDraftDirty(true); }} className="w-full rounded-xl border border-white/10 bg-[#07130c] px-3 py-2.5 text-xs text-white">{slotTimeOptions.filter((time) => time !== '24:00').map((time) => <option key={time} value={time}>{formatBDTime(time)}</option>)}</select>
+                  <select aria-label="Pricing start time" value={pricingRuleStart} onChange={(event) => { setPricingRuleStart(event.target.value); setPricingRuleDraftDirty(true); }} className="w-full rounded-xl border border-white/10 bg-[#07130c] px-3 py-2.5 text-xs text-white">{slotTimeOptions.filter((time) => time !== '24:00').map((time) => <option key={time} value={time}>{formatScheduleTimeOption(time)}</option>)}</select>
                 </label>
                 <label className="space-y-1.5">
                   <span className="block text-[11px] font-semibold text-white/65">End time</span>
-                  <select aria-label="Pricing end time" value={pricingRuleEnd} onChange={(event) => { setPricingRuleEnd(event.target.value); setPricingRuleDraftDirty(true); }} className="w-full rounded-xl border border-white/10 bg-[#07130c] px-3 py-2.5 text-xs text-white">{slotTimeOptions.filter((time) => time !== '00:00').map((time) => <option key={time} value={time}>{formatBDTime(time)}</option>)}</select>
+                  <select aria-label="Pricing end time" value={pricingRuleEnd} onChange={(event) => { setPricingRuleEnd(event.target.value); setPricingRuleDraftDirty(true); }} className="w-full rounded-xl border border-white/10 bg-[#07130c] px-3 py-2.5 text-xs text-white">{slotTimeOptions.filter((time) => time !== '00:00').map((time) => <option key={time} value={time}>{formatScheduleTimeOption(time)}</option>)}</select>
                 </label>
                 <label className="space-y-1.5">
                   <span className="block text-[11px] font-semibold text-white/65">Price per hour (৳)</span>
