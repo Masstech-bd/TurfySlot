@@ -6,8 +6,11 @@ services:
     depends_on:
       api:
         condition: service_healthy
-    ports:
-      - "${WEB_PORT:-8081}:80"
+    expose:
+      - "80"
+    networks:
+      - default
+      - coolify
     restart: unless-stopped
 
   api:
