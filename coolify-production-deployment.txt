@@ -24,7 +24,7 @@ CREATE THE COOLIFY RESOURCE
 2. Use compose.yaml for the web/API/Redis services; it does not provision MongoDB. For Coolify MongoDB, attach the API to the database's private network and use its internal connection URI. No PostgreSQL service is required.
 3. Confirm Coolify builds the web and API images from the repository. The API container runs database/applySchema.js before starting server.js.
 4. Route the public domain to the web service on its container port 80. Enable HTTPS using Coolify's certificate management.
-5. Expose only the web service publicly. Do not expose Redis port 6379 or API port 5000 to the Internet. Do not open the Compose host port 8080 publicly.
+5. The web service's optional host port defaults to 8081 (`WEB_PORT`). Do not set it to 8080, which may be used by Coolify's proxy. Expose only the web service publicly; do not expose Redis port 6379, API port 5000, or the direct web host port to the Internet.
 6. Keep Redis, application data, and upload volumes on persistent storage. Do not delete these volumes when redeploying.
 
 CONFIGURE COOLIFY SECRETS
