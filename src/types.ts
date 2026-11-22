@@ -353,6 +353,13 @@ export interface PlatformSettings {
   minWithdrawalAmount: number;  // e.g. 1000 BDT
   defaultCancellationWindowHours: number; // e.g. 24
   supportedSports: string[];
+  metaPixelId?: string;
+  metaPixelEnabled?: boolean;
+  googleAnalyticsId?: string;
+  googleAnalyticsEnabled?: boolean;
+  googleAdsConversionId?: string;
+  googleAdsConversionLabel?: string;
+  googleAdsEnabled?: boolean;
   publicLocations?: Array<{ area: string; city: string }>;
   enableOpenMatches?: boolean;
   enableTournaments?: boolean;

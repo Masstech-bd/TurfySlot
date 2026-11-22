@@ -9,6 +9,7 @@ import { AppDialogHost } from './components/common/AppDialog';
 import { LegalPage, LegalPageSlug } from './components/common/LegalPage';
 import { HelpCenterPage } from './components/common/HelpCenterPage';
 import { StartupLoadingScreen } from './components/common/StartupLoadingScreen';
+import { TrackingConsent } from './components/common/TrackingConsent';
 
 const PlayerPortal = lazy(() => import('./components/player/PlayerPortal').then((module) => ({ default: module.PlayerPortal })));
 const OwnerPortal = lazy(() => import('./components/owner/OwnerPortal').then((module) => ({ default: module.OwnerPortal })));
@@ -50,6 +51,7 @@ const AppContent: React.FC = () => {
       <EmailVerificationModal />
       <ScrollToTopButton />
       <AppDialogHost />
+      <TrackingConsent />
 
       {/* System Status Footer */}
       <footer className="bg-[#0A1E14] border-t border-white/10 py-6 text-xs text-white/60">

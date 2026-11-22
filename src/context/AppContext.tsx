@@ -299,6 +299,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     minWithdrawalAmount: 0,
     defaultCancellationWindowHours: 0,
     supportedSports: [],
+    metaPixelId: '',
+    metaPixelEnabled: false,
+    googleAnalyticsId: '',
+    googleAnalyticsEnabled: false,
+    googleAdsConversionId: '',
+    googleAdsConversionLabel: '',
+    googleAdsEnabled: false,
     publicLocations: [],
     enableOpenMatches: false,
     enableTournaments: false,
@@ -623,6 +630,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           minWithdrawalAmount: Number(platformSettings.minimum_withdrawal_amount?.amount ?? platformSettings.minimum_withdrawal_amount ?? previous.minWithdrawalAmount),
           defaultCancellationWindowHours: Number(platformSettings.cancellation_window_hours ?? previous.defaultCancellationWindowHours),
           supportedSports: (platformSettings.supported_sports || previous.supportedSports) as string[],
+          metaPixelId: typeof platformSettings.meta_pixel_id === 'string' ? platformSettings.meta_pixel_id : previous.metaPixelId,
+          metaPixelEnabled: platformSettings.meta_pixel_enabled === true,
+          googleAnalyticsId: typeof platformSettings.google_analytics_id === 'string' ? platformSettings.google_analytics_id : previous.googleAnalyticsId,
+          googleAnalyticsEnabled: platformSettings.google_analytics_enabled === true,
+          googleAdsConversionId: typeof platformSettings.google_ads_conversion_id === 'string' ? platformSettings.google_ads_conversion_id : previous.googleAdsConversionId,
+          googleAdsConversionLabel: typeof platformSettings.google_ads_conversion_label === 'string' ? platformSettings.google_ads_conversion_label : previous.googleAdsConversionLabel,
+          googleAdsEnabled: platformSettings.google_ads_enabled === true,
           publicLocations: (platformSettings.public_locations || previous.publicLocations || []) as PlatformSettings['publicLocations'],
           featuredPackages: (platformSettings.featured_packages || previous.featuredPackages) as PlatformSettings['featuredPackages'],
           paymentGateways: (platformSettings.payment_gateways || previous.paymentGateways) as PlatformSettings['paymentGateways'],
@@ -1680,10 +1694,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ['platformFeeEnabled', 'platform_fee_enabled'], ['gatewayFeeEnabled', 'gateway_fee_enabled'],
       ['showFeeBreakdown', 'show_fee_breakdown'], ['ownerBillingSwitchEnabled', 'owner_billing_switch_enabled'],
       ['defaultCancellationWindowHours', 'cancellation_window_hours'], ['supportedSports', 'supported_sports'],
+      ['metaPixelId', 'meta_pixel_id'], ['metaPixelEnabled', 'meta_pixel_enabled'],
+      ['googleAnalyticsId', 'google_analytics_id'], ['googleAnalyticsEnabled', 'google_analytics_enabled'],
+      ['googleAdsConversionId', 'google_ads_conversion_id'], ['googleAdsConversionLabel', 'google_ads_conversion_label'],
+      ['googleAdsEnabled', 'google_ads_enabled'],
       ['publicLocations', 'public_locations'],
     ];
     const persisted: Partial<PlatformSettings> = {};
-    for (const [field, key] of keys) {
+    const orderedKeys = [...keys];
+    const trackingSettingOrder: Partial<Record<keyof PlatformSettings, number>> = {
+      metaPixelEnabled: updates.metaPixelEnabled === false ? 0 : 2,
+      metaPixelId: 1,
+      googleAnalyticsEnabled: updates.googleAnalyticsEnabled === false ? 0 : 2,
+      googleAnalyticsId: 1,
+      googleAdsEnabled: updates.googleAdsEnabled === false ? 0 : 2,
+      googleAdsConversionId: 1,
+      googleAdsConversionLabel: 1,
+    };
+    orderedKeys.sort(([leftField], [rightField]) =>
+      (trackingSettingOrder[leftField] ?? 1) - (trackingSettingOrder[rightField] ?? 1));
+    for (const [field, key] of orderedKeys) {
       if (!(field in updates)) continue;
       const response = await apiFetch(`/api/admin/settings/${key}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value: updates[field] }) });
       const result = await response.json();

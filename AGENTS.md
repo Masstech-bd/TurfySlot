@@ -137,6 +137,8 @@ old one is not progress.
 - Section 85. Local Admin Password Reset
 - Section 86. Fixed-Total Turf Pricing Ranges
 - Section 87. Admin-Managed Home-Page Hero Filterss
+- Section 88. Admin-Managed Meta Pixel
+- Section 89. Admin-Managed Google Analytics and Ads Conversion Tracking
 - Section 63. Automatic Booking Completion and Owner Override
 - Section 62. Explicit Weekly Availability Required for Public Turf Listings
 
@@ -5771,3 +5773,55 @@ The application must support PostgreSQL and MongoDB as alternative database prov
 - [ ] The public options endpoint exposes only the intended filter values; changes remain admin-authorized and audited.
 - [ ] Empty configurations render the corresponding “All” option without hardcoded fallback lists.
 - [ ] Existing hero search/date behavior, non-hero filters, and turf listing behavior remain unchanged.
+
+
+## 88. Admin-Managed Meta Pixel
+
+### 88.1 Scope
+
+- Admins can configure the Meta (Facebook) Pixel from Admin > Settings, with a Pixel ID and independent enabled state. The setting is disabled and empty by default.
+- The Pixel ID is a public tracking identifier, not a secret. It is returned only by a dedicated public read-only endpoint when enabled; the endpoint exposes no other platform settings.
+- The application loads Meta Pixel only after the visitor explicitly consents. A centered modal popup offers Accept and Reject choices and appears only until the visitor chooses. The selection is stored locally in the visitor's browser and prevents the popup from reappearing; rejecting prevents Pixel code and event requests from loading. Do not show a persistent privacy-choices control.
+- Admins can enable these standard events: `PageView`, `ViewContent` when a turf detail is opened, `Search` when the visitor submits a turf search, `InitiateCheckout` when a player begins payment, and `Purchase` only after a server-confirmed successful payment.
+- Events must not include names, email addresses, phone numbers, account IDs, booking IDs, precise location, payment references, or payment/turf amounts. `Purchase` carries no value or currency parameters.
+- Pixel events are client-side analytics only. They never affect booking, payment, refund, authorization, or wallet behavior. Manual/offline bookings do not emit `Purchase`.
+- Configuration uses existing platform settings storage for both supported database providers. Admin changes use the existing protected settings API and audit logging.
+- This section does not add other ad networks, server-side Conversions API, custom audiences, retargeting controls, or additional tracking events.
+
+### 88.2 Definition of Done
+
+- [ ] Admins can save a valid Meta Pixel ID and enable/disable tracking from Admin settings; invalid IDs are rejected server-side and settings persist in PostgreSQL and MongoDB.
+- [ ] The public endpoint returns only the enabled Pixel ID and exposes no unrelated or sensitive platform settings.
+- [ ] A visitor who rejects consent causes no Meta script or Pixel request to load; accepting allows configured Pixel events.
+- [ ] The consent prompt appears once as a centered modal popup, stores the choice, and does not reappear after a choice; no persistent privacy-choices control is shown.
+- [ ] The five specified events fire only at their defined points, and `Purchase` fires only for a server-confirmed online payment.
+- [ ] No personal, account, booking, location, or payment amount/reference data is sent with events.
+- [ ] Pixel configuration updates are audit logged and cannot change booking or payment outcomes.
+
+
+## 89. Admin-Managed Google Analytics and Ads Conversion Tracking
+
+### 89.1 Scope
+
+- Admins can configure Google Analytics 4 (GA4) with a Measurement ID and independent enabled state, and Google Ads conversion tracking with a Conversion ID, conversion label, and independent enabled state.
+- Both integrations are disabled and unconfigured by default. These identifiers and labels are public tracking configuration, not secrets; expose them only through a dedicated public read-only endpoint when the corresponding integration is enabled and valid.
+- GA4 and Google Ads scripts/events load only after the visitor accepts the existing tracking-consent popup. Rejecting consent prevents Google tracking scripts and requests from loading. No persistent privacy-choices control is shown.
+- GA4 records `page_view`, `view_item` when a turf detail is opened, `search` when a visitor submits a turf search, `begin_checkout` when a player begins payment, and `purchase` only after a server-confirmed successful online payment.
+- Google Ads conversion tracking fires only for a server-confirmed successful online booking payment. It must not include a conversion value or other booking/payment details.
+- Events must not include names, email addresses, phone numbers, account IDs, booking IDs, precise location, payment references, or booking/payment amounts. Events are client-side analytics only and do not affect booking, payment, refund, authorization, or wallet behavior. Manual/offline bookings do not emit `purchase` or an Ads conversion.
+- The consent popup must clearly disclose that Meta and/or Google tracking may run after consent, based on the integrations enabled by the admin.
+- Configuration uses existing platform settings storage for both supported database providers. Admin changes use the existing protected settings API and audit logging. Update CSP only for the specific Google script, connection, and image origins required by these tags.
+- This section does not add Google Tag Manager, server-side Conversions API, remarketing audiences, custom audiences, or additional tracking events.
+
+### 89.2 Definition of Done
+
+- [ ] Admins can independently configure and enable/disable GA4 and Google Ads conversion tracking.
+- [ ] GA4 IDs, Google Ads IDs, and conversion labels are validated server-side; settings persist in PostgreSQL and MongoDB and are audit logged.
+- [ ] The public endpoint returns only enabled, valid tracking configuration and no unrelated or sensitive platform settings.
+- [ ] Google scripts and event requests remain absent before consent and after rejection; accepting consent permits only the enabled integrations.
+- [ ] The specified GA4 events fire at their defined points, and the GA4 `purchase` event and Google Ads conversion fire only for a server-confirmed successful online payment.
+- [ ] No personal, account, booking, precise-location, or payment amount/reference data is sent.
+- [ ] Manual/offline bookings do not trigger Google `purchase` or Ads conversion events.
+- [ ] CSP permits the required Google tag endpoints without weakening unrelated script restrictions.
+- [ ] Tracking configuration cannot change booking or payment outcomes; existing Meta Pixel behavior remains intact.
+- [ ] With the Pixel disabled or unconfigured, all application flows work normally and no Pixel script or event is sent.

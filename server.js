@@ -415,14 +415,14 @@ const cspDirectives = {
   objectSrc: ["'none'"],
   frameAncestors: ["'none'"],
   frameSrc: ["'self'", 'data:', 'blob:'],
-  scriptSrc: ["'self'"],
+  scriptSrc: ["'self'", 'https://connect.facebook.net', 'https://www.googletagmanager.com'],
   styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
   fontSrc: ["'self'", 'data:', 'https://fonts.gstatic.com'],
-  imgSrc: ["'self'", 'data:', 'blob:', 'https://images.unsplash.com', 'https://*.tile.openstreetmap.org'],
-  connectSrc: ["'self'", 'https://nominatim.openstreetmap.org'],
+  imgSrc: ["'self'", 'data:', 'blob:', 'https://images.unsplash.com', 'https://*.tile.openstreetmap.org', 'https://www.facebook.com', 'https://www.google.com', 'https://googleads.g.doubleclick.net', 'https://www.googleadservices.com'],
+  connectSrc: ["'self'", 'https://nominatim.openstreetmap.org', 'https://www.facebook.com', 'https://www.googletagmanager.com', 'https://*.google-analytics.com', 'https://analytics.google.com', 'https://www.google.com', 'https://googleads.g.doubleclick.net', 'https://www.googleadservices.com'],
   mediaSrc: ["'self'", 'blob:', 'data:'],
   workerSrc: ["'self'", 'blob:'],
-  formAction: ["'self'", 'https:'],
+  formAction: ["'self'"],
 };
 if (process.env.NODE_ENV === 'production') cspDirectives.upgradeInsecureRequests = [];
 
@@ -1211,6 +1211,13 @@ const isValidPublicLocations = (value) => Array.isArray(value) && value.length <
   new Set(value.map((item) => `${item.area.trim().toLocaleLowerCase()}|${item.city.trim().toLocaleLowerCase()}`)).size === value.length;
 
 const adminSettingValidators = {
+  meta_pixel_id: (value) => typeof value === 'string' && (value.trim() === '' || /^\d{5,20}$/.test(value.trim())),
+  meta_pixel_enabled: (value) => typeof value === 'boolean',
+  google_analytics_id: (value) => typeof value === 'string' && (value.trim() === '' || /^G-[A-Z0-9]{6,20}$/i.test(value.trim())),
+  google_analytics_enabled: (value) => typeof value === 'boolean',
+  google_ads_conversion_id: (value) => typeof value === 'string' && (value.trim() === '' || /^AW-\d{6,20}$/i.test(value.trim())),
+  google_ads_conversion_label: (value) => typeof value === 'string' && (value.trim() === '' || /^[A-Z0-9_-]{1,100}$/i.test(value.trim())),
+  google_ads_enabled: (value) => typeof value === 'boolean',
   public_api_base_url: (value) => Boolean(normalizePublicApiBaseUrl(value, { allowHttpLocalhost: process.env.NODE_ENV !== 'production' })),
   global_commission_rate: (value) => Number.isFinite(Number(value)) && Number(value) >= 0 && Number(value) <= 100,
   platform_fee_rate: (value) => Number.isFinite(Number(value)) && Number(value) >= 0 && Number(value) <= 100,
@@ -1475,6 +1482,32 @@ app.get('/api/payments/gateways', async (_req, res) => {
   } catch { res.status(503).json({ success: false, message: 'Unable to load payment options.' }); }
 });
 
+app.get('/api/public/tracking-config', async (_req, res) => {
+  try {
+    const settings = await readAdminSettings();
+    const metaPixelId = typeof settings.meta_pixel_id === 'string' ? settings.meta_pixel_id.trim() : '';
+    const googleAnalyticsId = typeof settings.google_analytics_id === 'string' ? settings.google_analytics_id.trim() : '';
+    const googleAdsConversionId = typeof settings.google_ads_conversion_id === 'string' ? settings.google_ads_conversion_id.trim() : '';
+    const googleAdsConversionLabel = typeof settings.google_ads_conversion_label === 'string' ? settings.google_ads_conversion_label.trim() : '';
+    const metaPixelEnabled = settings.meta_pixel_enabled === true && /^\d{5,20}$/.test(metaPixelId);
+    const googleAnalyticsEnabled = settings.google_analytics_enabled === true && /^G-[A-Z0-9]{6,20}$/i.test(googleAnalyticsId);
+    const googleAdsEnabled = settings.google_ads_enabled === true &&
+      /^AW-\d{6,20}$/i.test(googleAdsConversionId) &&
+      /^[A-Z0-9_-]{1,100}$/i.test(googleAdsConversionLabel);
+    res.json({
+      success: true,
+      data: {
+        metaPixel: metaPixelEnabled ? { enabled: true, pixelId: metaPixelId } : { enabled: false },
+        googleAnalytics: googleAnalyticsEnabled ? { enabled: true, measurementId: googleAnalyticsId } : { enabled: false },
+        googleAds: googleAdsEnabled ? { enabled: true, conversionId: googleAdsConversionId, conversionLabel: googleAdsConversionLabel } : { enabled: false },
+      },
+    });
+  } catch {
+    console.error('Public tracking configuration load failed.');
+    res.status(503).json({ success: false, message: 'Tracking configuration is temporarily unavailable.' });
+  }
+});
+
 app.get('/api/public/billing-options', async (_req, res) => {
   try {
     const settings = await readAdminSettings();
@@ -1665,14 +1698,57 @@ app.put('/api/admin/settings/:key', requireAuth, requireRole('admin'), async (re
   if (!validator) return res.status(404).json({ success: false, message: 'Setting is not configurable through this API.' });
   if (!validator(req.body.value)) return res.status(400).json({ success: false, message: 'Setting value is invalid.' });
   try {
+    if (req.params.key === 'meta_pixel_enabled' && req.body.value === true) {
+      const settings = await readAdminSettings();
+      if (!/^\d{5,20}$/.test(String(settings.meta_pixel_id || '').trim())) {
+        return res.status(400).json({ success: false, message: 'Save a valid Meta Pixel ID before enabling tracking.' });
+      }
+    }
+    if (req.params.key === 'meta_pixel_id' && String(req.body.value).trim() === '') {
+      const settings = await readAdminSettings();
+      if (settings.meta_pixel_enabled === true) {
+        return res.status(400).json({ success: false, message: 'Disable Meta Pixel before clearing its ID.' });
+      }
+    }
+    if (req.params.key === 'google_analytics_enabled' && req.body.value === true) {
+      const settings = await readAdminSettings();
+      if (!/^G-[A-Z0-9]{6,20}$/i.test(String(settings.google_analytics_id || '').trim())) {
+        return res.status(400).json({ success: false, message: 'Save a valid GA4 Measurement ID before enabling tracking.' });
+      }
+    }
+    if (req.params.key === 'google_analytics_id' && String(req.body.value).trim() === '') {
+      const settings = await readAdminSettings();
+      if (settings.google_analytics_enabled === true) {
+        return res.status(400).json({ success: false, message: 'Disable GA4 tracking before clearing its Measurement ID.' });
+      }
+    }
+    if (req.params.key === 'google_ads_enabled' && req.body.value === true) {
+      const settings = await readAdminSettings();
+      if (!/^AW-\d{6,20}$/i.test(String(settings.google_ads_conversion_id || '').trim()) ||
+          !/^[A-Z0-9_-]{1,100}$/i.test(String(settings.google_ads_conversion_label || '').trim())) {
+        return res.status(400).json({ success: false, message: 'Save a valid Google Ads Conversion ID and label before enabling tracking.' });
+      }
+    }
+    if ((req.params.key === 'google_ads_conversion_id' || req.params.key === 'google_ads_conversion_label') &&
+        String(req.body.value).trim() === '') {
+      const settings = await readAdminSettings();
+      if (settings.google_ads_enabled === true) {
+        return res.status(400).json({ success: false, message: 'Disable Google Ads tracking before clearing its conversion settings.' });
+      }
+    }
     const booleanKeys = ['platform_fee_enabled', 'gateway_fee_enabled', 'show_fee_breakdown', 'owner_billing_switch_enabled', 'booking_auto_checkin_enabled', 'booking_auto_complete_enabled'];
+    const trackingStringKeys = ['meta_pixel_id', 'google_analytics_id', 'google_ads_conversion_id', 'google_ads_conversion_label'];
     const value = req.params.key === 'public_api_base_url'
       ? normalizePublicApiBaseUrl(req.body.value, { allowHttpLocalhost: process.env.NODE_ENV !== 'production' })
+      : trackingStringKeys.includes(req.params.key)
+        ? String(req.body.value).trim()
       : req.params.key === 'supported_sports'
         ? req.body.value.map((sport) => sport.trim())
         : req.params.key === 'public_locations'
           ? req.body.value.map((location) => ({ area: location.area.trim(), city: location.city.trim() }))
-          : booleanKeys.includes(req.params.key) || req.params.key === 'minimum_withdrawal_amount'
+          : booleanKeys.includes(req.params.key) ||
+            ['meta_pixel_enabled', 'google_analytics_enabled', 'google_ads_enabled'].includes(req.params.key) ||
+            req.params.key === 'minimum_withdrawal_amount'
             ? req.body.value : Number(req.body.value);
     res.json({ success: true, data: { key: req.params.key, value: await writeAdminSetting({ key: req.params.key, value, adminId: req.user.id }) } });
   } catch (error) {

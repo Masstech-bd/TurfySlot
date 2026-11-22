@@ -45,6 +45,7 @@ import { formatBDTimeRange, getBDDateString, getBDNow } from '../../utils/dateti
 import { locationFilterValue, parseLocationFilter } from '../../utils/locationFilters';
 import { apiFetch } from '../../utils/apiClient';
 import { calculateDisplayedTurfPrice, getDisplayedPricingSlots, getPricingBlockSlots } from '../../../database/pricing.js';
+import { trackAnalyticsEvent } from '../../utils/tracking';
 
 interface HeroFilterOptions {
   supportedSports: string[];
@@ -630,6 +631,7 @@ export const TurfySlotHome: React.FC<TurfySlotHomeProps> = ({
             <div className="flex items-center gap-4 flex-wrap pt-2">
               <button
                 onClick={() => {
+                  trackAnalyticsEvent('Search');
                   const el = document.getElementById('turfs');
                   el?.scrollIntoView({ behavior: 'smooth' });
                 }}

@@ -437,7 +437,17 @@ export const AdminPortal: React.FC = () => {
   const [settingsSaveError, setSettingsSaveError] = useState('');
   const [featureFlagError, setFeatureFlagError] = useState('');
   const [updatingFeatureFlag, setUpdatingFeatureFlag] = useState<string | null>(null);
-  const [settingsSubTab, setSettingsSubTab] = useState<'commission' | 'discovery' | 'features' | 'packages' | 'gateways' | 'email' | 'backups' | 'danger'>('commission');
+  const [settingsSubTab, setSettingsSubTab] = useState<'commission' | 'discovery' | 'features' | 'packages' | 'gateways' | 'email' | 'tracking' | 'backups' | 'danger'>('commission');
+  const [metaPixelIdDraft, setMetaPixelIdDraft] = useState(settings.metaPixelId || '');
+  const [metaPixelEnabledDraft, setMetaPixelEnabledDraft] = useState(settings.metaPixelEnabled === true);
+  const [googleAnalyticsIdDraft, setGoogleAnalyticsIdDraft] = useState(settings.googleAnalyticsId || '');
+  const [googleAnalyticsEnabledDraft, setGoogleAnalyticsEnabledDraft] = useState(settings.googleAnalyticsEnabled === true);
+  const [googleAdsConversionIdDraft, setGoogleAdsConversionIdDraft] = useState(settings.googleAdsConversionId || '');
+  const [googleAdsConversionLabelDraft, setGoogleAdsConversionLabelDraft] = useState(settings.googleAdsConversionLabel || '');
+  const [googleAdsEnabledDraft, setGoogleAdsEnabledDraft] = useState(settings.googleAdsEnabled === true);
+  const [trackingSaveMessage, setTrackingSaveMessage] = useState('');
+  const [trackingSaveError, setTrackingSaveError] = useState('');
+  const [trackingSaving, setTrackingSaving] = useState(false);
   const [heroSportsDraft, setHeroSportsDraft] = useState(settings.supportedSports);
   const [heroLocationsDraft, setHeroLocationsDraft] = useState(settings.publicLocations || []);
   const [newHeroSport, setNewHeroSport] = useState('');
@@ -447,6 +457,19 @@ export const AdminPortal: React.FC = () => {
   const [savingDiscoveryOptions, setSavingDiscoveryOptions] = useState(false);
   useEffect(() => setHeroSportsDraft(settings.supportedSports), [settings.supportedSports]);
   useEffect(() => setHeroLocationsDraft(settings.publicLocations || []), [settings.publicLocations]);
+  useEffect(() => {
+    setMetaPixelIdDraft(settings.metaPixelId || '');
+    setMetaPixelEnabledDraft(settings.metaPixelEnabled === true);
+    setGoogleAnalyticsIdDraft(settings.googleAnalyticsId || '');
+    setGoogleAnalyticsEnabledDraft(settings.googleAnalyticsEnabled === true);
+    setGoogleAdsConversionIdDraft(settings.googleAdsConversionId || '');
+    setGoogleAdsConversionLabelDraft(settings.googleAdsConversionLabel || '');
+    setGoogleAdsEnabledDraft(settings.googleAdsEnabled === true);
+  }, [
+    settings.metaPixelId, settings.metaPixelEnabled,
+    settings.googleAnalyticsId, settings.googleAnalyticsEnabled,
+    settings.googleAdsConversionId, settings.googleAdsConversionLabel, settings.googleAdsEnabled,
+  ]);
   const [backupBusyCategory, setBackupBusyCategory] = useState<'players' | 'owners' | 'admins' | null>(null);
   const [backupError, setBackupError] = useState('');
   const [backupMessage, setBackupMessage] = useState('');
@@ -827,6 +850,28 @@ export const AdminPortal: React.FC = () => {
       setSettingsSaveError(error instanceof Error ? error.message : 'Unable to save platform settings.');
     } finally {
       setSettingsSaving(false);
+    }
+  };
+
+  const saveTrackingSettings = async () => {
+    setTrackingSaving(true);
+    setTrackingSaveMessage('');
+    setTrackingSaveError('');
+    try {
+      await updatePlatformSettings({
+        metaPixelId: metaPixelIdDraft.trim(),
+        metaPixelEnabled: metaPixelEnabledDraft,
+        googleAnalyticsId: googleAnalyticsIdDraft.trim(),
+        googleAnalyticsEnabled: googleAnalyticsEnabledDraft,
+        googleAdsConversionId: googleAdsConversionIdDraft.trim(),
+        googleAdsConversionLabel: googleAdsConversionLabelDraft.trim(),
+        googleAdsEnabled: googleAdsEnabledDraft,
+      });
+      setTrackingSaveMessage('Tracking settings saved.');
+    } catch (error) {
+      setTrackingSaveError(error instanceof Error ? error.message : 'Unable to save tracking settings.');
+    } finally {
+      setTrackingSaving(false);
     }
   };
 
@@ -1935,13 +1980,14 @@ export const AdminPortal: React.FC = () => {
                 { key: 'packages', label: 'Packages' },
                 { key: 'gateways', label: 'Payment Gateways' },
                 { key: 'email', label: 'Email / SMTP' },
+                { key: 'tracking', label: 'Tracking' },
                 { key: 'backups', label: 'Data Backups' },
                 { key: 'danger', label: 'Danger Zone' },
               ].map((tab) => (
                 <button
                   key={tab.key}
                   type="button"
-                  onClick={() => setSettingsSubTab(tab.key as 'commission' | 'discovery' | 'features' | 'packages' | 'gateways' | 'email' | 'backups' | 'danger')}
+                  onClick={() => setSettingsSubTab(tab.key as 'commission' | 'discovery' | 'features' | 'packages' | 'gateways' | 'email' | 'tracking' | 'backups' | 'danger')}
                   className={`px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${
                     settingsSubTab === tab.key
                       ? 'bg-[#C8FF5E] text-[#0A1E14] shadow-md shadow-[#C8FF5E]/20'
@@ -2168,6 +2214,106 @@ export const AdminPortal: React.FC = () => {
                   }} className="rounded-lg bg-[#C8FF5E] px-3 py-2 text-xs font-bold text-[#0A1E14] disabled:opacity-60">{savingDiscoveryOptions ? 'Saving...' : 'Save filter options'}</button>
                   {discoverySaveMessage && <p role="status" className="text-xs text-white/70">{discoverySaveMessage}</p>}
                 </div>
+              </section>
+            )}
+
+            {settingsSubTab === 'tracking' && (
+              <section className="max-w-3xl space-y-5 rounded-2xl border border-white/10 bg-[#0A1E14] p-6 shadow-lg">
+                <div>
+                  <h3 className="text-sm font-bold text-white">Tracking integrations</h3>
+                  <p className="mt-1 text-[11px] text-white/60">Each enabled integration loads only after a visitor accepts the tracking popup. Events contain no personal details, booking details, or purchase values.</p>
+                </div>
+                <div className="space-y-5 rounded-xl border border-white/10 bg-[#07130c] p-4">
+                  <div>
+                    <h4 className="text-xs font-bold text-white">Meta (Facebook) Pixel</h4>
+                    <p className="mt-1 text-[11px] text-white/50">Page views, turf views, searches, checkout starts, and confirmed online purchases.</p>
+                  </div>
+                  <label className="block text-xs font-semibold text-white/80">
+                    Pixel ID
+                    <input
+                      inputMode="numeric"
+                      autoComplete="off"
+                      value={metaPixelIdDraft}
+                      onChange={(event) => setMetaPixelIdDraft(event.target.value)}
+                      maxLength={20}
+                      placeholder="Numeric Pixel ID"
+                      className="mt-2 w-full rounded-xl border border-white/15 bg-[#0A1E14] p-3 text-sm text-white outline-none focus:border-[#C8FF5E]"
+                    />
+                  </label>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-xs font-semibold text-white/80">Enable Meta Pixel</span>
+                    <button type="button" aria-pressed={metaPixelEnabledDraft} onClick={() => setMetaPixelEnabledDraft((enabled) => !enabled)} className={`shrink-0 rounded-full border px-3 py-1.5 text-[10px] font-bold uppercase ${metaPixelEnabledDraft ? 'border-[#C8FF5E]/40 bg-[#C8FF5E]/15 text-[#C8FF5E]' : 'border-white/10 bg-white/[0.04] text-white/60'}`}>
+                      {metaPixelEnabledDraft ? 'Enabled' : 'Disabled'}
+                    </button>
+                  </div>
+                </div>
+                <div className="space-y-5 rounded-xl border border-white/10 bg-[#07130c] p-4">
+                  <div>
+                    <h4 className="text-xs font-bold text-white">Google Analytics 4</h4>
+                    <p className="mt-1 text-[11px] text-white/50">Page views, turf views, searches, checkout starts, and confirmed online purchases.</p>
+                  </div>
+                  <label className="block text-xs font-semibold text-white/80">
+                    Measurement ID
+                    <input
+                      autoComplete="off"
+                      value={googleAnalyticsIdDraft}
+                      onChange={(event) => setGoogleAnalyticsIdDraft(event.target.value)}
+                      maxLength={23}
+                      placeholder="G-XXXXXXXXXX"
+                      className="mt-2 w-full rounded-xl border border-white/15 bg-[#0A1E14] p-3 text-sm text-white outline-none focus:border-[#C8FF5E]"
+                    />
+                  </label>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-xs font-semibold text-white/80">Enable Google Analytics 4</span>
+                    <button type="button" aria-pressed={googleAnalyticsEnabledDraft} onClick={() => setGoogleAnalyticsEnabledDraft((enabled) => !enabled)} className={`shrink-0 rounded-full border px-3 py-1.5 text-[10px] font-bold uppercase ${googleAnalyticsEnabledDraft ? 'border-[#C8FF5E]/40 bg-[#C8FF5E]/15 text-[#C8FF5E]' : 'border-white/10 bg-white/[0.04] text-white/60'}`}>
+                      {googleAnalyticsEnabledDraft ? 'Enabled' : 'Disabled'}
+                    </button>
+                  </div>
+                </div>
+                <div className="space-y-5 rounded-xl border border-white/10 bg-[#07130c] p-4">
+                  <div>
+                    <h4 className="text-xs font-bold text-white">Google Ads conversion tracking</h4>
+                    <p className="mt-1 text-[11px] text-white/50">Records a conversion only after an online booking payment is confirmed by the server.</p>
+                  </div>
+                  <label className="block text-xs font-semibold text-white/80">
+                    Conversion ID
+                    <input
+                      autoComplete="off"
+                      value={googleAdsConversionIdDraft}
+                      onChange={(event) => setGoogleAdsConversionIdDraft(event.target.value)}
+                      maxLength={23}
+                      placeholder="AW-123456789"
+                      className="mt-2 w-full rounded-xl border border-white/15 bg-[#0A1E14] p-3 text-sm text-white outline-none focus:border-[#C8FF5E]"
+                    />
+                  </label>
+                  <label className="block text-xs font-semibold text-white/80">
+                    Conversion label
+                    <input
+                      autoComplete="off"
+                      value={googleAdsConversionLabelDraft}
+                      onChange={(event) => setGoogleAdsConversionLabelDraft(event.target.value)}
+                      maxLength={100}
+                      placeholder="Conversion label"
+                      className="mt-2 w-full rounded-xl border border-white/15 bg-[#0A1E14] p-3 text-sm text-white outline-none focus:border-[#C8FF5E]"
+                    />
+                  </label>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-xs font-semibold text-white/80">Enable Google Ads conversions</span>
+                    <button type="button" aria-pressed={googleAdsEnabledDraft} onClick={() => setGoogleAdsEnabledDraft((enabled) => !enabled)} className={`shrink-0 rounded-full border px-3 py-1.5 text-[10px] font-bold uppercase ${googleAdsEnabledDraft ? 'border-[#C8FF5E]/40 bg-[#C8FF5E]/15 text-[#C8FF5E]' : 'border-white/10 bg-white/[0.04] text-white/60'}`}>
+                      {googleAdsEnabledDraft ? 'Enabled' : 'Disabled'}
+                    </button>
+                  </div>
+                </div>
+                {trackingSaveError && <p role="alert" className="text-xs font-semibold text-rose-300">{trackingSaveError}</p>}
+                {trackingSaveMessage && <p role="status" className="text-xs font-semibold text-[#C8FF5E]">{trackingSaveMessage}</p>}
+                <button
+                  type="button"
+                  disabled={trackingSaving}
+                  onClick={() => void saveTrackingSettings()}
+                  className="rounded-xl bg-[#C8FF5E] px-5 py-2.5 text-xs font-bold text-[#0A1E14] disabled:cursor-wait disabled:opacity-60"
+                >
+                  {trackingSaving ? 'Saving...' : 'Save tracking settings'}
+                </button>
               </section>
             )}
 

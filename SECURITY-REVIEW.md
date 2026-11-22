@@ -7,7 +7,7 @@ Reviewed on: 2026-11-22
 | Severity | File | Lines | Vulnerability | Confidence |
 |---|---|---:|---|---:|
 | HIGH | turf.txt | 1-29 | Plaintext production-looking credentials, including database, admin, SSLCommerz, and email-provider secrets, are stored in the repository. | 10/10 |
-| RESOLVED | server.js | 412 | A restrictive Helmet CSP has been enabled for scripts, styles, images, connections, forms, frames, workers, and mixed-content upgrades. | 10/10 |
+| RESOLVED | server.js, deploy/nginx.conf | 412; 9 | A restrictive CSP is configured on the API and the Nginx-served production frontend, with Meta and Google tracking limited to consent-gated loading. | 10/10 |
 
 ## Required Secret Response
 
@@ -33,9 +33,9 @@ Do not commit any replacement credential values.
 - Multer limits uploaded documents and profile/image inputs are validated.
 - Build dependencies include Helmet and express-rate-limit.
 
-## CSP Recommendation
+## CSP Status
 
-Enable a restrictive Helmet Content Security Policy appropriate for the SPA and integrations. At minimum, avoid `unsafe-inline` and `unsafe-eval`, restrict scripts and connections to required origins, and test payment callbacks, maps, uploads, and web-push behavior after enabling it.
+A restrictive CSP is configured on the API and the Nginx-served production frontend. It restricts scripts to the application and the consent-enabled Meta and Google tag hosts, and permits only the external origins needed for fonts, maps, image tiles, and tracking requests. Inline styles remain allowed for existing UI libraries; inline scripts and `unsafe-eval` are not allowed. The local Nginx configuration could not be syntax-tested because the Docker engine is unavailable in this environment.
 
 ## Validation Results
 

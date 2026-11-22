@@ -52,6 +52,7 @@ import { TurfMap } from '../common/LazyTurfMap';
 import { ClickableDatePicker } from '../common/CustomSelect';
 import { apiFetch } from '../../utils/apiClient';
 import { calculateDisplayedTurfPrice, getDisplayedPricingSlots, getPricingBlockSlots } from '../../../database/pricing.js';
+import { trackAnalyticsEvent } from '../../utils/tracking';
 
 import heroPlayerCleanImg from '../../assets/images/hero_player_clean_1788976334634.jpg';
 import cityTurfMapImg from '../../assets/images/city_turf_map_1788975628489.jpg';
@@ -172,6 +173,9 @@ export const PlayerPortal: React.FC = () => {
   const [selectedTurf, setSelectedTurf] = useState<Turf | null>(null);
   const [turfAddons, setTurfAddons] = useState<Turf['addons']>([]);
   const [addonLoadError, setAddonLoadError] = useState('');
+  useEffect(() => {
+    if (selectedTurf) trackAnalyticsEvent('ViewContent');
+  }, [selectedTurf?.id]);
   const [selectedDate, setSelectedDate] = useState<string>(getBDDateString());
   const dateScrollerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -742,6 +746,7 @@ export const PlayerPortal: React.FC = () => {
     }
     setGatewayError('');
     setIsProcessingPayment(true);
+    trackAnalyticsEvent('InitiateCheckout');
     try {
       const endpoint = selectedGateway.provider === 'sslcommerz'
         ? '/api/payments/sslcommerz/init'
@@ -796,6 +801,7 @@ export const PlayerPortal: React.FC = () => {
       const row = result?.data as Record<string, unknown> | undefined;
       if (!response.ok || !result?.success || !row) throw new Error(result?.message || 'Unable to check this booking yet.');
       if (row.status === 'confirmed') {
+        trackAnalyticsEvent('Purchase');
         const booking: Booking = {
           id: String(row.id), bookingNumber: String(row.booking_number || ''), playerId: currentUser.id,
           customerName: currentUser.name, customerPhone: currentUser.phone, customerEmail: currentUser.email,
