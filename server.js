@@ -409,7 +409,31 @@ const requireApprovedOwner = async (req, res, next) => {
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true, limit: '100kb', parameterLimit: 100 })); // SSLCommerz callbacks post as form-encoded
 app.use((req, _res, next) => { if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) req.body = {}; next(); });
-app.use(helmet({ contentSecurityPolicy: false }));
+const cspDirectives = {
+  defaultSrc: ["'self'"],
+  baseUri: ["'self'"],
+  objectSrc: ["'none'"],
+  frameAncestors: ["'none'"],
+  frameSrc: ["'self'", 'data:', 'blob:'],
+  scriptSrc: ["'self'"],
+  styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+  fontSrc: ["'self'", 'data:', 'https://fonts.gstatic.com'],
+  imgSrc: ["'self'", 'data:', 'blob:', 'https://images.unsplash.com', 'https://*.tile.openstreetmap.org'],
+  connectSrc: ["'self'", 'https://nominatim.openstreetmap.org'],
+  mediaSrc: ["'self'", 'blob:', 'data:'],
+  workerSrc: ["'self'", 'blob:'],
+  formAction: ["'self'", 'https:'],
+};
+if (process.env.NODE_ENV === 'production') cspDirectives.upgradeInsecureRequests = [];
+
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: cspDirectives,
+  },
+  hsts: process.env.NODE_ENV === 'production'
+    ? { maxAge: 31536000, includeSubDomains: true, preload: true }
+    : false,
+}));
 if (process.env.NODE_ENV === 'production') app.set('trust proxy', 1);
 
 const playerRegistrationLimiter = rateLimit({

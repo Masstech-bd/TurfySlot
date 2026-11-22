@@ -7,7 +7,7 @@ Reviewed on: 2026-11-22
 | Severity | File | Lines | Vulnerability | Confidence |
 |---|---|---:|---|---:|
 | HIGH | turf.txt | 1-29 | Plaintext production-looking credentials, including database, admin, SSLCommerz, and email-provider secrets, are stored in the repository. | 10/10 |
-| MEDIUM | server.js | 412 | Helmet is initialized with `contentSecurityPolicy: false`, so the application is not receiving a configured Content Security Policy. | 9/10 |
+| RESOLVED | server.js | 412 | A restrictive Helmet CSP has been enabled for scripts, styles, images, connections, forms, frames, workers, and mixed-content upgrades. | 10/10 |
 
 ## Required Secret Response
 
